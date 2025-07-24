@@ -14,19 +14,12 @@ load_dotenv()
 from azure.ai.projects import AIProjectClient
 from azure.identity import DefaultAzureCredential
 from azure.ai.agents.models import ListSortOrder
-
+from azure.identity import ClientSecretCredential
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
 
-AZURE_ENDPOINT = os.environ.get("AZURE_AI_ENDPOINT", "https://charlotte-resource.services.ai.azure.com/api/projects/charlotte1")
-AZURE_AGENT_ID = os.environ.get("AZURE_AGENT_ID", "asst_xbnWenHUuDKUukJIgRYt6fCg")
-
-project = AIProjectClient(
-    credential=DefaultAzureCredential(),
-    endpoint=AZURE_ENDPOINT
-)
-agent = project.agents.get_agent(AZURE_AGENT_ID)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -163,22 +156,31 @@ async def query(request: QueryRequest):
         return {
             "answer": "I'm sorry, I'm having trouble answering your question. Please try again later.",
             "sources": [],
-            "conversation_id": conversation_id
+            "conversation_id": thread.id
         }
     else:
         messages = project_client.agents.messages.list(thread_id=thread.id, order=ListSortOrder.ASCENDING)
         assistant_messages = [msg for msg in messages if msg.role == "assistant"]
         if assistant_messages:
             latest_message = assistant_messages[-1]
+            # Extract the text value from the message content
+            if latest_message.content and isinstance(latest_message.content, list):
+                text_content = ""
+                for part in latest_message.content:
+                    if part.get("type") == "text" and "text" in part and "value" in part["text"]:
+                        text_content = part["text"]["value"]
+                        break
+                if not text_content:
+                    text_content = "I'm sorry, I couldn't find a valid response from the assistant."
+            else:
+                text_content = "I'm sorry, I couldn't find a valid response from the assistant."
         else:
-            latest_message = "I'm sorry, I'm having trouble answering your question. Please try again later."
-        
-        print(f"Latest message: {latest_message}")
+            text_content = "I'm sorry, I'm having trouble answering your question. Please try again later."
 
         return {
-            "answer": latest_message,
+            "answer": text_content,
             "sources": [],
-            "conversation_id": conversation_id
+            "conversation_id": thread.id
         }
     
 
