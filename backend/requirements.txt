@@ -8,3 +8,8 @@ chromadb>=0.4.18
 unstructured>=0.10.30
 python-docx>=0.8.11
 python-multipart>=0.0.6
+azure-ai-projects
+azure-identity
+azure-ai-agents
+azure-ai-projects
+azure-ai-agents

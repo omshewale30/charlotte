@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import ChatMessage from "@/components/chat-message";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { sendChatQuery } from "../api";
 
 export default function ChatInterface() {
   const [messages, setMessages] = useState([
@@ -45,29 +46,17 @@ export default function ChatInterface() {
     setIsSubmitting(true);
     
     try {
-      const response = await fetch("http://localhost:8000/api/query", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          query: userMessage,
-          conversation_id: conversationId,
-          messages: messages.map(msg => ({
-            role: msg.role,
-            content: msg.content
-          }))
-        }),
+      const data = await sendChatQuery({
+        query: userMessage,
+        conversation_id: conversationId,
+        messages: messages.map(msg => ({
+          role: msg.role,
+          content: msg.content
+        }))
       });
       
-      if (!response.ok) {
-        throw new Error(`Error: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
       // Set conversation ID if this is the first message
-      if (!conversationId) {
+      if (!conversationId && data.conversation_id) {
         setConversationId(data.conversation_id);
       }
       
