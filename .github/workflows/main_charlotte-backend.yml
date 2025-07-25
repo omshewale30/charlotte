@@ -38,7 +38,7 @@ jobs:
         # CHANGE: Change directory into backend and zip its contents
         run: |
           cd backend
-          zip ../release.zip . -r
+          zip -r ../release.zip . 
       # Optional: Add step to run tests here (PyTest, Django test suites, etc.)
 
       - name: Upload artifact for deployment jobs
