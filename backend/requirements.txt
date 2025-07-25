@@ -1,5 +1,5 @@
 fastapi>=0.105.0
-uvicorn>=0.24.0
+uvicorn
 pydantic>=2.5.2
 langchain>=0.0.335
 langchain-openai>=0.0.2
