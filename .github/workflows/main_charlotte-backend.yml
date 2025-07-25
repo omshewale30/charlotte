@@ -18,6 +18,21 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Python version
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Create and start virtual environment
+        run: |
+          python -m venv venv
+          source venv/bin/activate
+      
+      - name: Install dependencies
+        working-directory: ./backend
+        run: pip install -r requirements.txt
+
         
       - name: Zip artifact for deployment
         # CHANGE: Change directory into backend and zip its contents
@@ -30,8 +45,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: python-app
-          path: release.zip
-          
+          path: |
+            release.zip
+            !venv/
 
   deploy:
     runs-on: ubuntu-latest
