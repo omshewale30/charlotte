@@ -12,7 +12,7 @@ export default function ChatInterface() {
   const [messages, setMessages] = useState([
     {
       role: "assistant",
-      content: "Hello! I'm the UNC Chatbot Demo. I can answer questions about the Cashier Office procedures based on the instruction manuals in my database. How can I help you today?",
+      content: "Hello! I'm Charlotte. I can answer questions about the Cashier Office procedures based on the instruction manuals in my database. How can I help you today?",
     },
   ]);
   const [input, setInput] = useState("");
