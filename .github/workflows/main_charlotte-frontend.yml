@@ -58,12 +58,7 @@ jobs:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_F69AA17A1F004F29BAA9A9AC2B025826 }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_97C3FA36875B4A5FBF48D8662D2EBF12 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_043BB2CB28474526986C0A2A90B6F7D8 }}
-      - name: Set SCM_DO_BUILD_DURING_DEPLOYMENT
-        uses: Azure/appservice-settings@v1
-        with:
-          app-name: 'charlotte-frontend'
-          slot-name: 'Production'
-          app-settings-json: '{ "SCM_DO_BUILD_DURING_DEPLOYMENT": "false" }'
+
 
       - name: 'Deploy to Azure Web App'
         id: deploy-to-webapp
