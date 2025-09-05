@@ -41,3 +41,8 @@ yarn-error.log*
 next-env.d.ts
 
 backend/chroma_db/
+
+backend/documents/
+backend/processed_data/
+backend/myenv/
+backend/venv/
