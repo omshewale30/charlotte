@@ -66,8 +66,11 @@ export default function ChatInterface() {
           if (i === prev.length - 1 && msg.isLoading) {
             return {
               role: "assistant",
-              content: data.answer,
+              content: data.response || data.answer, // Handle both response formats
               sources: data.sources,
+              transactions: data.data, // EDI transaction data
+              queryType: data.type, // "edi_search" or "general_ai"
+              transactionsFound: data.transactions_found,
               isLoading: false,
             };
           }

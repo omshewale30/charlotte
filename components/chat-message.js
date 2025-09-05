@@ -41,6 +41,28 @@ export default function ChatMessage({ message }) {
                 </ul>
               </div>
             )}
+            {message.queryType === "edi_search" && message.transactions && message.transactions.length > 0 && (
+              <div className="mt-2 pt-2 border-t border-border/50 text-sm">
+                <div className="font-medium text-muted-foreground mb-2">
+                  Found {message.transactionsFound} transaction{message.transactionsFound !== 1 ? 's' : ''}:
+                </div>
+                <div className="space-y-2">
+                  {message.transactions.slice(0, 3).map((transaction, index) => (
+                    <div key={index} className="bg-muted/50 rounded p-2 text-xs">
+                      <div><strong>Trace:</strong> {transaction.trace_number}</div>
+                      <div><strong>Amount:</strong> ${transaction.amount}</div>
+                      <div><strong>Date:</strong> {transaction.effective_date}</div>
+                      <div><strong>From:</strong> {transaction.originator} <strong>To:</strong> {transaction.receiver}</div>
+                    </div>
+                  ))}
+                  {message.transactions.length > 3 && (
+                    <div className="text-xs text-muted-foreground">
+                      ...and {message.transactions.length - 3} more transactions
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>
