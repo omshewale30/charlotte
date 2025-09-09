@@ -1,0 +1,383 @@
+# Azure Deployment Roadmap for Charlotte Application
+
+## Overview
+This roadmap provides step-by-step instructions for deploying the Charlotte Next.js frontend and FastAPI backend to Azure using Azure Container Registry (ACR) and Azure Web Apps.
+
+## Prerequisites
+- Azure CLI installed and configured
+- Docker installed locally
+- Azure subscription with appropriate permissions
+- Environment variables for Azure AI services configured
+
+## Architecture
+- **Frontend**: Next.js application deployed on Azure Web App for Containers
+- **Backend**: FastAPI application deployed on Azure Web App for Containers
+- **Container Registry**: Azure Container Registry (ACR) for storing Docker images
+- **Resource Group**: New resource group for all resources
+- **Networking**: VNet integration for secure communication
+
+## Step-by-Step Deployment Guide
+
+### Phase 1: Azure Setup and Resource Group Creation
+
+#### 1.1 Login to Azure and Set Subscription
+```bash
+# Login to Azure
+az login
+
+# List available subscriptions
+az account list --output table
+
+# Set the target subscription (replace with your subscription ID)
+az account set --subscription "your-subscription-id"
+
+# Verify current subscription
+az account show
+```
+
+#### 1.2 Create Resource Group
+```bash
+# Create resource group in East US region
+az group create \
+  --name "charlotte-rg" \
+  --location "eastus"
+
+# Verify resource group creation
+az group show --name "charlotte-rg"
+```
+
+### Phase 2: Azure Container Registry Setup
+
+#### 2.1 Create Azure Container Registry
+```bash
+# Create ACR (replace with unique name)
+az acr create \
+  --resource-group "charlotte-rg" \
+  --name "charlotteacr" \
+  --sku "Basic" \
+  --admin-enabled true
+
+# Get ACR login server
+az acr show --name "charlotteacr" --query loginServer --output tsv
+```
+
+#### 2.2 Login to ACR
+```bash
+# Login to ACR
+az acr login --name "charlotteacr"
+
+# Get ACR credentials
+az acr credential show --name "charlotteacr"
+```
+
+### Phase 3: Build and Push Docker Images
+
+#### 3.1 Build and Push Frontend Image
+```bash
+# Navigate to project root
+cd /path/to/charlotte
+
+# Build frontend image
+docker build -t charlotte-frontend .
+
+# Tag for ACR
+docker tag charlotte-frontend charlotteacr.azurecr.io/charlotte-frontend:latest
+
+# Push to ACR
+docker push charlotteacr.azurecr.io/charlotte-frontend:latest
+```
+
+#### 3.2 Build and Push Backend Image
+```bash
+# Navigate to backend directory
+cd backend
+
+# Build backend image
+docker build -t charlotte-backend .
+
+# Tag for ACR
+docker tag charlotte-backend charlotteacr.azurecr.io/charlotte-backend:latest
+
+# Push to ACR
+docker push charlotteacr.azurecr.io/charlotte-backend:latest
+```
+
+### Phase 4: Azure Web Apps Creation
+
+#### 4.1 Create App Service Plan
+```bash
+# Create App Service Plan (B1 tier for 10-15 users)
+az appservice plan create \
+  --name "charlotte-plan" \
+  --resource-group "charlotte-rg" \
+  --sku "B1" \
+  --is-linux
+```
+
+#### 4.2 Create Frontend Web App
+```bash
+# Create frontend web app
+az webapp create \
+  --resource-group "charlotte-rg" \
+  --plan "charlotte-plan" \
+  --name "charlotte-frontend-app" \
+  --deployment-container-image-name "charlotteacr.azurecr.io/charlotte-frontend:latest"
+```
+
+#### 4.3 Create Backend Web App
+```bash
+# Create backend web app
+az webapp create \
+  --resource-group "charlotte-rg" \
+  --plan "charlotte-plan" \
+  --name "charlotte-backend-app" \
+  --deployment-container-image-name "charlotteacr.azurecr.io/charlotte-backend:latest"
+```
+
+### Phase 5: Configure Web Apps
+
+#### 5.1 Configure ACR Integration
+```bash
+# Configure ACR integration for frontend
+az webapp config container set \
+  --name "charlotte-frontend-app" \
+  --resource-group "charlotte-rg" \
+  --docker-custom-image-name "charlotteacr.azurecr.io/charlotte-frontend:latest" \
+  --docker-registry-server-url "https://charlotteacr.azurecr.io" \
+  --docker-registry-server-user "charlotteacr" \
+  --docker-registry-server-password "YOUR_ACR_PASSWORD"
+
+# Configure ACR integration for backend
+az webapp config container set \
+  --name "charlotte-backend-app" \
+  --resource-group "charlotte-rg" \
+  --docker-custom-image-name "charlotteacr.azurecr.io/charlotte-backend:latest" \
+  --docker-registry-server-url "https://charlotteacr.azurecr.io" \
+  --docker-registry-server-user "charlotteacr" \
+  --docker-registry-server-password "YOUR_ACR_PASSWORD"
+```
+
+#### 5.2 Configure Environment Variables
+
+**Frontend Environment Variables:**
+```bash
+# Set frontend environment variables
+az webapp config appsettings set \
+  --resource-group "charlotte-rg" \
+  --name "charlotte-frontend-app" \
+  --settings \
+    NODE_ENV=production \
+    NEXT_PUBLIC_API_URL=https://charlotte-backend-app.azurewebsites.net
+```
+
+**Backend Environment Variables:**
+```bash
+# Set backend environment variables
+az webapp config appsettings set \
+  --resource-group "charlotte-rg" \
+  --name "charlotte-backend-app" \
+  --settings \
+    AZURE_AI_ENDPOINT="your-azure-ai-endpoint" \
+    AZURE_TENANT_ID="your-tenant-id" \
+    AZURE_CLIENT_ID="your-client-id" \
+    AZURE_CLIENT_SECRET="your-client-secret" \
+    AZURE_AGENT_ID="your-agent-id"
+```
+
+### Phase 6: Configure CORS and Networking
+
+#### 6.1 Update Backend CORS Settings
+```bash
+# Update CORS to allow frontend domain
+az webapp config appsettings set \
+  --resource-group "charlotte-rg" \
+  --name "charlotte-backend-app" \
+  --settings \
+    CORS_ORIGINS="https://charlotte-frontend-app.azurewebsites.net"
+```
+
+#### 6.2 Configure Custom Domains (Optional)
+```bash
+# Add custom domain for frontend
+az webapp config hostname add \
+  --webapp-name "charlotte-frontend-app" \
+  --resource-group "charlotte-rg" \
+  --hostname "your-domain.com"
+
+# Add custom domain for backend
+az webapp config hostname add \
+  --webapp-name "charlotte-backend-app" \
+  --resource-group "charlotte-rg" \
+  --hostname "api.your-domain.com"
+```
+
+### Phase 7: SSL Certificate and Security
+
+#### 7.1 Configure SSL
+```bash
+# Enable HTTPS only for frontend
+az webapp update \
+  --resource-group "charlotte-rg" \
+  --name "charlotte-frontend-app" \
+  --https-only true
+
+# Enable HTTPS only for backend
+az webapp update \
+  --resource-group "charlotte-rg" \
+  --name "charlotte-backend-app" \
+  --https-only true
+```
+
+#### 7.2 Configure Authentication (Optional)
+```bash
+# Enable Azure AD authentication for frontend
+az webapp auth update \
+  --resource-group "charlotte-rg" \
+  --name "charlotte-frontend-app" \
+  --enabled true \
+  --action LoginWithAzureActiveDirectory \
+  --aad-client-id "your-app-registration-client-id"
+```
+
+### Phase 8: Monitoring and Logging
+
+#### 8.1 Create Application Insights
+```bash
+# Create Application Insights
+az monitor app-insights component create \
+  --app "charlotte-insights" \
+  --location "eastus" \
+  --resource-group "charlotte-rg"
+
+# Get instrumentation key
+az monitor app-insights component show \
+  --app "charlotte-insights" \
+  --resource-group "charlotte-rg" \
+  --query instrumentationKey --output tsv
+```
+
+#### 8.2 Configure Logging
+```bash
+# Enable application logging for frontend
+az webapp log config \
+  --resource-group "charlotte-rg" \
+  --name "charlotte-frontend-app" \
+  --application-logging true \
+  --level information
+
+# Enable application logging for backend
+az webapp log config \
+  --resource-group "charlotte-rg" \
+  --name "charlotte-backend-app" \
+  --application-logging true \
+  --level information
+```
+
+### Phase 9: Deployment and Testing
+
+#### 9.1 Deploy Applications
+```bash
+# Restart web apps to ensure latest configuration
+az webapp restart --resource-group "charlotte-rg" --name "charlotte-frontend-app"
+az webapp restart --resource-group "charlotte-rg" --name "charlotte-backend-app"
+```
+
+#### 9.2 Test Deployment
+```bash
+# Get frontend URL
+az webapp show --resource-group "charlotte-rg" --name "charlotte-frontend-app" --query defaultHostName --output tsv
+
+# Get backend URL
+az webapp show --resource-group "charlotte-rg" --name "charlotte-backend-app" --query defaultHostName --output tsv
+
+# Test backend health
+curl https://charlotte-backend-app.azurewebsites.net/docs
+
+# Test frontend
+curl https://charlotte-frontend-app.azurewebsites.net
+```
+
+### Phase 10: CI/CD Pipeline (Optional)
+
+#### 10.1 Create GitHub Actions Workflow
+Create `.github/workflows/deploy.yml`:
+```yaml
+name: Deploy to Azure
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Login to Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+    
+    - name: Build and push frontend
+      run: |
+        docker build -t charlotteacr.azurecr.io/charlotte-frontend:${{ github.sha }} .
+        docker push charlotteacr.azurecr.io/charlotte-frontend:${{ github.sha }}
+    
+    - name: Build and push backend
+      run: |
+        cd backend
+        docker build -t charlotteacr.azurecr.io/charlotte-backend:${{ github.sha }} .
+        docker push charlotteacr.azurecr.io/charlotte-backend:${{ github.sha }}
+    
+    - name: Deploy to Azure Web Apps
+      run: |
+        az webapp config container set --name charlotte-frontend-app --resource-group charlotte-rg --docker-custom-image-name charlotteacr.azurecr.io/charlotte-frontend:${{ github.sha }}
+        az webapp config container set --name charlotte-backend-app --resource-group charlotte-rg --docker-custom-image-name charlotteacr.azurecr.io/charlotte-backend:${{ github.sha }}
+```
+
+## Cost Estimation (Monthly for 10-15 users)
+
+| Resource | Tier | Estimated Cost |
+|----------|------|----------------|
+| App Service Plan (B1) | Basic | $13.14 |
+| Azure Container Registry | Basic | $5.00 |
+| Application Insights | Free tier | $0.00 |
+| **Total** | | **~$18.14/month** |
+
+## Security Considerations
+
+1. **Environment Variables**: Store sensitive data in Azure Key Vault
+2. **Network Security**: Configure VNet integration for internal communication
+3. **Authentication**: Implement Azure AD authentication
+4. **HTTPS**: Enable HTTPS-only communication
+5. **Monitoring**: Set up alerts for security events
+
+## Troubleshooting
+
+### Common Issues:
+1. **CORS Errors**: Update CORS settings in backend
+2. **Image Pull Errors**: Verify ACR credentials
+3. **Environment Variables**: Check app settings configuration
+4. **SSL Issues**: Verify certificate configuration
+
+### Useful Commands:
+```bash
+# View web app logs
+az webapp log tail --resource-group "charlotte-rg" --name "charlotte-frontend-app"
+
+# Check web app status
+az webapp show --resource-group "charlotte-rg" --name "charlotte-frontend-app" --query state
+
+# Restart web app
+az webapp restart --resource-group "charlotte-rg" --name "charlotte-frontend-app"
+```
+
+## Next Steps
+
+1. Set up monitoring and alerting
+2. Configure backup and disaster recovery
+3. Implement automated scaling
+4. Set up staging environment
+5. Configure custom domains and SSL certificates
