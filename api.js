@@ -1,13 +1,13 @@
 // api.js
 
 const apiUrl = {
-  "Production": "https://charlotte-backend-dtexg4awara4adfb.eastus-01.azurewebsites.net/api/query",
-  "Development": "http://localhost:8000/api/query",
+  "Production": "https://charlotte-backend-dtexg4awara4adfb.eastus-01.azurewebsites.net/api/chat",
+  "Development": "http://localhost:8000/api/chat",
 }
 
 export async function sendChatQuery({ query, conversation_id, messages }) {
   try {
-    const response = await fetch(apiUrl.Production, {
+    const response = await fetch(apiUrl.Development, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
