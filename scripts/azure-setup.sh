@@ -13,6 +13,9 @@ APP_PLAN_NAME="charlotte-plan"
 FRONTEND_APP_NAME="charlotte-frontend-app"
 BACKEND_APP_NAME="charlotte-backend-app"
 INSIGHTS_NAME="charlotte-insights"
+STORAGE_ACCOUNT_NAME="edireportstorage"
+SEARCH_SERVICE_NAME="edi-search-service"
+AI_ACCOUNT_NAME="charlotte-resource"
 
 # Colors for output
 RED='\033[0;31m'
@@ -76,7 +79,7 @@ create_acr() {
         --resource-group "$RESOURCE_GROUP" \
         --name "$ACR_NAME" \
         --sku "Basic" \
-        --admin-enabled true \
+        --admin-enabled false \
         --output table
     print_status "ACR created successfully"
     
@@ -117,6 +120,7 @@ create_frontend_app() {
         --name "$FRONTEND_APP_NAME" \
         --deployment-container-image-name "nginx:latest" \
         --output table
+    az webapp identity assign -g "$RESOURCE_GROUP" -n "$FRONTEND_APP_NAME" >/dev/null
     print_status "Frontend web app created successfully"
 }
 
@@ -129,36 +133,36 @@ create_backend_app() {
         --name "$BACKEND_APP_NAME" \
         --deployment-container-image-name "nginx:latest" \
         --output table
+    az webapp identity assign -g "$RESOURCE_GROUP" -n "$BACKEND_APP_NAME" >/dev/null
     print_status "Backend web app created successfully"
 }
 
 # Function to configure ACR integration
 configure_acr_integration() {
-    print_status "Configuring ACR integration..."
-    
-    # Get ACR credentials
-    ACR_USERNAME=$(az acr credential show --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP" --query username --output tsv)
-    ACR_PASSWORD=$(az acr credential show --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP" --query passwords[0].value --output tsv)
-    
-    # Configure frontend ACR integration
+    print_status "Configuring ACR integration and granting AcrPull via managed identity..."
+
+    # Assign AcrPull to both web apps' identities
+    ACR_ID=$(az acr show --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
+    FRONTEND_PRINCIPAL_ID=$(az webapp identity show -g "$RESOURCE_GROUP" -n "$FRONTEND_APP_NAME" --query principalId -o tsv)
+    BACKEND_PRINCIPAL_ID=$(az webapp identity show -g "$RESOURCE_GROUP" -n "$BACKEND_APP_NAME" --query principalId -o tsv)
+
+    az role assignment create --assignee-object-id "$FRONTEND_PRINCIPAL_ID" --assignee-principal-type ServicePrincipal --role AcrPull --scope "$ACR_ID" >/dev/null || true
+    az role assignment create --assignee-object-id "$BACKEND_PRINCIPAL_ID"  --assignee-principal-type ServicePrincipal --role AcrPull --scope "$ACR_ID" >/dev/null || true
+
+    # Configure container settings without credentials (managed identity)
     az webapp config container set \
         --name "$FRONTEND_APP_NAME" \
         --resource-group "$RESOURCE_GROUP" \
         --docker-custom-image-name "$ACR_NAME.azurecr.io/charlotte-frontend:latest" \
-        --docker-registry-server-url "https://$ACR_NAME.azurecr.io" \
-        --docker-registry-server-user "$ACR_USERNAME" \
-        --docker-registry-server-password "$ACR_PASSWORD"
-    
-    # Configure backend ACR integration
+        --docker-registry-server-url "https://$ACR_NAME.azurecr.io"
+
     az webapp config container set \
         --name "$BACKEND_APP_NAME" \
         --resource-group "$RESOURCE_GROUP" \
         --docker-custom-image-name "$ACR_NAME.azurecr.io/charlotte-backend:latest" \
-        --docker-registry-server-url "https://$ACR_NAME.azurecr.io" \
-        --docker-registry-server-user "$ACR_USERNAME" \
-        --docker-registry-server-password "$ACR_PASSWORD"
-    
-    print_status "ACR integration configured successfully"
+        --docker-registry-server-url "https://$ACR_NAME.azurecr.io"
+
+    print_status "ACR integration configured successfully (managed identity)"
 }
 
 # Function to configure environment variables
@@ -179,19 +183,12 @@ configure_environment_variables() {
     # Configure backend environment variables
     print_warning "Please configure the following environment variables for the backend:"
     echo "AZURE_AI_ENDPOINT"
-    echo "AZURE_TENANT_ID"
-    echo "AZURE_CLIENT_ID"
-    echo "AZURE_CLIENT_SECRET"
     echo "AZURE_AGENT_ID"
     
     read -p "Do you want to configure these now? (y/n): " configure_now
     
     if [[ $configure_now == "y" || $configure_now == "Y" ]]; then
         read -p "Enter AZURE_AI_ENDPOINT: " AI_ENDPOINT
-        read -p "Enter AZURE_TENANT_ID: " TENANT_ID
-        read -p "Enter AZURE_CLIENT_ID: " CLIENT_ID
-        read -s -p "Enter AZURE_CLIENT_SECRET: " CLIENT_SECRET
-        echo
         read -p "Enter AZURE_AGENT_ID: " AGENT_ID
         
         az webapp config appsettings set \
@@ -199,15 +196,46 @@ configure_environment_variables() {
             --name "$BACKEND_APP_NAME" \
             --settings \
                 AZURE_AI_ENDPOINT="$AI_ENDPOINT" \
-                AZURE_TENANT_ID="$TENANT_ID" \
-                AZURE_CLIENT_ID="$CLIENT_ID" \
-                AZURE_CLIENT_SECRET="$CLIENT_SECRET" \
                 AZURE_AGENT_ID="$AGENT_ID"
         
         print_status "Backend environment variables configured"
     else
         print_warning "Skipping backend environment variable configuration"
     fi
+}
+
+# Function to create supporting services (Storage, Search, Azure AI)
+create_supporting_services() {
+    print_status "Creating Storage Account: $STORAGE_ACCOUNT_NAME"
+    az storage account create \
+        --name "$STORAGE_ACCOUNT_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --location "$LOCATION" \
+        --sku Standard_LRS \
+        --kind StorageV2 \
+        --output table
+
+    print_status "Creating blob containers"
+    az storage container create --account-name "$STORAGE_ACCOUNT_NAME" --name "edi-reports" --auth-mode login >/dev/null
+    az storage container create --account-name "$STORAGE_ACCOUNT_NAME" --name "edi-json-structured" --auth-mode login >/dev/null
+
+    print_status "Creating Azure AI Search service (Free): $SEARCH_SERVICE_NAME"
+    az search service create \
+        --name "$SEARCH_SERVICE_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --sku free \
+        --location "eastus2" \
+        --output table
+
+    print_status "Creating Azure AI (AIServices S0): $AI_ACCOUNT_NAME"
+    az cognitiveservices account create \
+        --name "$AI_ACCOUNT_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --location "eastus2" \
+        --kind AIServices \
+        --sku S0 \
+        --yes \
+        --output table
 }
 
 # Function to enable HTTPS
@@ -262,6 +290,7 @@ main() {
     create_resource_group
     create_acr
     create_app_service_plan
+    create_supporting_services
     create_application_insights
     create_frontend_app
     create_backend_app

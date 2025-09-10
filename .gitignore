@@ -45,3 +45,4 @@ backend/documents/
 backend/processed_data/
 backend/myenv/
 backend/venv/
+azure-rg-template/

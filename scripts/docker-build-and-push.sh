@@ -7,7 +7,7 @@ set -e
 
 # Configuration variables
 ACR_NAME="charlotteacr"
-RESOURCE_GROUP="charlotte-rg"
+RESOURCE_GROUP="rg-primary-unc-foit-charlotte-ai"
 
 # Colors for output
 RED='\033[0;31m'
@@ -105,19 +105,13 @@ build_and_push_backend() {
 update_web_apps() {
     print_status "Updating web apps with new images..."
     
-    # Get ACR credentials
-    ACR_USERNAME=$(az acr credential show --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP" --query username --output tsv)
-    ACR_PASSWORD=$(az acr credential show --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP" --query passwords[0].value --output tsv)
-    
     # Update frontend web app
     print_status "Updating frontend web app..."
     az webapp config container set \
         --name "charlotte-frontend-app" \
         --resource-group "$RESOURCE_GROUP" \
         --docker-custom-image-name "$ACR_SERVER/charlotte-frontend:latest" \
-        --docker-registry-server-url "https://$ACR_SERVER" \
-        --docker-registry-server-user "$ACR_USERNAME" \
-        --docker-registry-server-password "$ACR_PASSWORD"
+        --docker-registry-server-url "https://$ACR_SERVER"
     
     # Update backend web app
     print_status "Updating backend web app..."
@@ -125,9 +119,7 @@ update_web_apps() {
         --name "charlotte-backend-app" \
         --resource-group "$RESOURCE_GROUP" \
         --docker-custom-image-name "$ACR_SERVER/charlotte-backend:latest" \
-        --docker-registry-server-url "https://$ACR_SERVER" \
-        --docker-registry-server-user "$ACR_USERNAME" \
-        --docker-registry-server-password "$ACR_PASSWORD"
+        --docker-registry-server-url "https://$ACR_SERVER"
     
     print_status "Web apps updated successfully"
 }
