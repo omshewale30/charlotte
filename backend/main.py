@@ -63,7 +63,7 @@ class Message(BaseModel):
 class QueryRequest(BaseModel):
     query: str
     conversation_id: Optional[str] = None
-    messages: Optional[List[Message]] = []
+    messages: Optional[List[Message]] = None
 
 class Source(BaseModel):
     document_name: str
@@ -372,8 +372,15 @@ async def query(request: QueryRequest):
     """
     conversation_id = request.conversation_id
 
-    project_client = app.state.project_client
-    agent = get_agent(project_client)
+    try:
+        project_client = app.state.project_client
+    except Exception:
+        raise HTTPException(status_code=500, detail="Project client not initialized. Check server startup logs and environment variables.")
+
+    try:
+        agent = get_agent(project_client)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get agent: {str(e)}")
     thread = session_threads.get(conversation_id, None)
 
     if not thread:
@@ -532,7 +539,7 @@ async def enhanced_chat(request: QueryRequest):
         # Route to EDI search
         edi_query = EDIQuery(question=request.query)
         edi_response = await query_edi_transactions(edi_query)
-        
+
         return {
             "response": edi_response.answer,
             "type": "edi_search",
@@ -543,11 +550,12 @@ async def enhanced_chat(request: QueryRequest):
     else:
         # Route to existing AI agent
         ai_response = await query(request)
+        print(f"AI response: {ai_response}")
         return {
-            "response": ai_response.answer,
+            "response": ai_response["answer"],
             "type": "general_ai",
-            "sources": ai_response.sources,
-            "conversation_id": ai_response.conversation_id
+            "sources": ai_response["sources"],
+            "conversation_id": ai_response["conversation_id"]
         }
 
 
