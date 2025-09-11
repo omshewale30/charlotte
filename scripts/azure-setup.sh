@@ -6,8 +6,8 @@
 set -e
 
 # Configuration variables
-RESOURCE_GROUP="charlotte-rg"
-LOCATION="eastus"
+RESOURCE_GROUP="rg-primary-unc-foit-charlotte-ai"
+LOCATION="eastus2"
 ACR_NAME="charlotteacr"
 APP_PLAN_NAME="charlotte-plan"
 FRONTEND_APP_NAME="charlotte-frontend-app"
