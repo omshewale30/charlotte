@@ -34,6 +34,9 @@ az account list --output table
 # Set the target subscription (replace with your subscription ID)
 az account set --subscription "your-subscription-id"
 
+# If subscription not found error occurs, use subscription ID directly:
+az account set --subscription "b4c2bcf7-cfaa-4c3e-b0c9-da3414f6ac0b"
+
 # Verify current subscription
 az account show
 ```
@@ -58,7 +61,7 @@ az acr create \
   --resource-group "charlotte-rg" \
   --name "charlotteacr" \
   --sku "Basic" \
-  --admin-enabled false
+  --admin-enabled true
 
 # Get ACR login server
 az acr show --name "charlotteacr" --query loginServer --output tsv
@@ -120,35 +123,53 @@ az appservice plan create \
 
 #### 4.2 Create Frontend Web App
 ```bash
-# Create frontend web app (enable system-assigned identity)
+# Create frontend web app with admin credentials (workaround for permissions)
 az webapp create \
-  --resource-group "charlotte-rg" \
-  --plan "charlotte-plan" \
-  --name "charlotte-frontend-app" \
-  --deployment-container-image-name "charlotteacr.azurecr.io/charlotte-frontend:latest"
+    --resource-group "rg-primary-unc-foit-charlotte-ai" \
+    --plan "charlotte-plan" \
+    --name "charlotte-frontend" \
+    --deployment-container-image-name "charlotteacr.azurecr.io/charlotte-frontend:latest" \
+    --https-only true
 
-# Enable system-assigned identity
-az webapp identity assign \
-  --resource-group "charlotte-rg" \
-  --name "charlotte-frontend-app"
+# Get ACR admin credentials
+az acr credential show --name charlotteacr
+
+# Configure container with admin credentials
+az webapp config container set \
+    --resource-group "rg-primary-unc-foit-charlotte-ai" \
+    --name "charlotte-frontend" \
+    --container-image-name "charlotteacr.azurecr.io/charlotte-frontend:latest" \
+    --container-registry-url "https://charlotteacr.azurecr.io" \
+    --container-registry-user <username_from_above> \
+    --container-registry-password <password_from_above>
 ```
 
 #### 4.3 Create Backend Web App
 ```bash
-# Create backend web app (enable system-assigned identity)
+# Create backend web app with admin credentials (workaround for permissions)
 az webapp create \
-  --resource-group "charlotte-rg" \
-  --plan "charlotte-plan" \
-  --name "charlotte-backend-app" \
-  --deployment-container-image-name "charlotteacr.azurecr.io/charlotte-backend:latest"
+    --resource-group "rg-primary-unc-foit-charlotte-ai" \
+    --plan "charlotte-plan" \
+    --name "charlotte-backend" \
+    --deployment-container-image-name "charlotteacr.azurecr.io/charlotte-backend:latest" \
+    --https-only true
 
-# Enable system-assigned identity
-az webapp identity assign \
-  --resource-group "charlotte-rg" \
-  --name "charlotte-backend-app"
+# Configure container with admin credentials (use same credentials from above)
+az webapp config container set \
+    --resource-group "rg-primary-unc-foit-charlotte-ai" \
+    --name "charlotte-backend" \
+    --container-image-name "charlotteacr.azurecr.io/charlotte-backend:latest" \
+    --container-registry-url "https://charlotteacr.azurecr.io" \
+    --container-registry-user <username_from_above> \
+    --container-registry-password <password_from_above>
+```
 
-### Phase 4.4: Grant ACR Pull Permissions to Web Apps
+### Phase 4.4: Authentication Method Used
+**Note**: Using ACR admin credentials instead of managed identity due to permission limitations.
+
+**Alternative: Managed Identity (requires admin permissions)**
 ```bash
+# If you have admin permissions, you can use managed identity instead:
 # Get ACR resource ID
 ACR_ID=$(az acr show --name "charlotteacr" --resource-group "charlotte-rg" --query id -o tsv)
 
@@ -159,7 +180,6 @@ BACKEND_PRINCIPAL_ID=$(az webapp identity show -g "charlotte-rg" -n "charlotte-b
 # Assign AcrPull at ACR scope
 az role assignment create --assignee-object-id "$FRONTEND_PRINCIPAL_ID" --assignee-principal-type ServicePrincipal --role AcrPull --scope "$ACR_ID"
 az role assignment create --assignee-object-id "$BACKEND_PRINCIPAL_ID"  --assignee-principal-type ServicePrincipal --role AcrPull --scope "$ACR_ID"
-```
 ```
 
 ### Phase 5: Configure Web Apps
@@ -187,7 +207,7 @@ az webapp config container set \
 # Storage Account (Standard LRS)
 az storage account create \
   --name "edireportstorage" \
-  --resource-group "charlotte-rg" \
+  --resource-group "rg-primary-unc-foit-charlotte-ai" \
   --location "eastus" \
   --sku Standard_LRS \
   --kind StorageV2
@@ -199,14 +219,14 @@ az storage container create --account-name "edireportstorage" --name "edi-json-s
 # Azure AI Search (Free tier)
 az search service create \
   --name "edi-search-service" \
-  --resource-group "charlotte-rg" \
+  --resource-group "rg-primary-unc-foit-charlotte-ai" \
   --sku free \
   --location "eastus2"
 
 # Azure AI (Cognitive Services) account (AIServices, S0)
 az cognitiveservices account create \
   --name "charlotte-resource" \
-  --resource-group "charlotte-rg" \
+  --resource-group "rg-primary-unc-foit-charlotte-ai" \
   --location "eastus2" \
   --kind AIServices \
   --sku S0 \
@@ -267,20 +287,7 @@ az webapp config hostname add \
 
 ### Phase 7: SSL Certificate and Security
 
-#### 7.1 Configure SSL
-```bash
-# Enable HTTPS only for frontend
-az webapp update \
-  --resource-group "charlotte-rg" \
-  --name "charlotte-frontend-app" \
-  --https-only true
 
-# Enable HTTPS only for backend
-az webapp update \
-  --resource-group "charlotte-rg" \
-  --name "charlotte-backend-app" \
-  --https-only true
-```
 
 #### 7.2 Configure Authentication (Optional)
 ```bash
