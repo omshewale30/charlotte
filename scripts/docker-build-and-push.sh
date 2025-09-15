@@ -8,6 +8,8 @@ set -e
 # Configuration variables
 ACR_NAME="charlotteacr"
 RESOURCE_GROUP="rg-primary-unc-foit-charlotte-ai"
+IMAGE_TAG="${IMAGE_TAG:-1.0.0}"
+FRONTEND_API_URL="${NEXT_PUBLIC_API_BASE_URL:-}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -46,11 +48,20 @@ check_azure_cli() {
     print_status "Azure CLI is installed"
 }
 
-# Function to login to Azure Container Registry
+# Function to login to Azure Container Registry using admin credentials
 login_to_acr() {
-    print_status "Logging in to Azure Container Registry: $ACR_NAME"
-    az acr login --name "$ACR_NAME"
-    print_status "Successfully logged in to ACR"
+    print_status "Logging in to Azure Container Registry (admin creds): $ACR_NAME"
+    # Fetch admin credentials from ACR
+    ACR_USERNAME=$(az acr credential show --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP" --query username -o tsv)
+    ACR_PASSWORD=$(az acr credential show --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP" --query passwords[0].value -o tsv)
+    if [[ -z "$ACR_USERNAME" || -z "$ACR_PASSWORD" ]]; then
+        print_error "Failed to retrieve ACR admin credentials. Ensure Admin user is enabled on the registry."
+        exit 1
+    fi
+    # Get login server
+    ACR_SERVER=$(az acr show --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP" --query loginServer --output tsv)
+    echo "$ACR_PASSWORD" | docker login "$ACR_SERVER" --username "$ACR_USERNAME" --password-stdin
+    print_status "Successfully logged in to ACR via docker login"
 }
 
 # Function to get ACR login server
@@ -59,45 +70,47 @@ get_acr_server() {
     print_status "ACR server: $ACR_SERVER"
 }
 
+# Ensure buildx builder exists and is selected
+ensure_buildx() {
+    if ! docker buildx inspect charlotte-multi &> /dev/null; then
+        print_status "Creating docker buildx builder (charlotte-multi)"
+        docker buildx create --use --name charlotte-multi > /dev/null
+    else
+        docker buildx use charlotte-multi > /dev/null
+    fi
+    print_status "Using docker buildx builder: charlotte-multi"
+}
+
 # Function to build and push frontend image
 build_and_push_frontend() {
     print_status "Building frontend Docker image..."
-    
-    # Build frontend image
-    docker build -t charlotte-frontend .
-    
-    # Tag for ACR
-    docker tag charlotte-frontend "$ACR_SERVER/charlotte-frontend:latest"
-    docker tag charlotte-frontend "$ACR_SERVER/charlotte-frontend:$(date +%Y%m%d-%H%M%S)"
-    
-    print_status "Pushing frontend image to ACR..."
-    docker push "$ACR_SERVER/charlotte-frontend:latest"
-    docker push "$ACR_SERVER/charlotte-frontend:$(date +%Y%m%d-%H%M%S)"
-    
+
+    # Build and push frontend image for linux/amd64
+    docker buildx build \
+        --platform linux/amd64 \
+        -f Dockerfile \
+        ${FRONTEND_API_URL:+--build-arg NEXT_PUBLIC_API_BASE_URL="$FRONTEND_API_URL"} \
+        -t "$ACR_SERVER/charlotte-frontend:$IMAGE_TAG" \
+        -t "$ACR_SERVER/charlotte-frontend:latest" \
+        . \
+        --push
+
     print_status "Frontend image pushed successfully"
 }
 
 # Function to build and push backend image
 build_and_push_backend() {
     print_status "Building backend Docker image..."
-    
-    # Navigate to backend directory
-    cd backend
-    
-    # Build backend image
-    docker build -t charlotte-backend .
-    
-    # Tag for ACR
-    docker tag charlotte-backend "$ACR_SERVER/charlotte-backend:latest"
-    docker tag charlotte-backend "$ACR_SERVER/charlotte-backend:$(date +%Y%m%d-%H%M%S)"
-    
-    print_status "Pushing backend image to ACR..."
-    docker push "$ACR_SERVER/charlotte-backend:latest"
-    docker push "$ACR_SERVER/charlotte-backend:$(date +%Y%m%d-%H%M%S)"
-    
-    # Navigate back to root directory
-    cd ..
-    
+
+    # Build and push backend image for linux/amd64
+    docker buildx build \
+        --platform linux/amd64 \
+        -f backend/Dockerfile \
+        -t "$ACR_SERVER/charlotte-backend:$IMAGE_TAG" \
+        -t "$ACR_SERVER/charlotte-backend:latest" \
+        backend \
+        --push
+
     print_status "Backend image pushed successfully"
 }
 
@@ -110,7 +123,7 @@ update_web_apps() {
     az webapp config container set \
         --name "charlotte-frontend-app" \
         --resource-group "$RESOURCE_GROUP" \
-        --docker-custom-image-name "$ACR_SERVER/charlotte-frontend:latest" \
+        --docker-custom-image-name "$ACR_SERVER/charlotte-frontend:$IMAGE_TAG" \
         --docker-registry-server-url "https://$ACR_SERVER"
     
     # Update backend web app
@@ -118,7 +131,7 @@ update_web_apps() {
     az webapp config container set \
         --name "charlotte-backend-app" \
         --resource-group "$RESOURCE_GROUP" \
-        --docker-custom-image-name "$ACR_SERVER/charlotte-backend:latest" \
+        --docker-custom-image-name "$ACR_SERVER/charlotte-backend:$IMAGE_TAG" \
         --docker-registry-server-url "https://$ACR_SERVER"
     
     print_status "Web apps updated successfully"
@@ -140,8 +153,8 @@ display_deployment_info() {
     echo
     echo "=== Deployment Information ==="
     echo "ACR Server: $ACR_SERVER"
-    echo "Frontend Image: $ACR_SERVER/charlotte-frontend:latest"
-    echo "Backend Image: $ACR_SERVER/charlotte-backend:latest"
+    echo "Frontend Image: $ACR_SERVER/charlotte-frontend:$IMAGE_TAG"
+    echo "Backend Image: $ACR_SERVER/charlotte-backend:$IMAGE_TAG"
     echo
     echo "=== Web App URLs ==="
     echo "Frontend: https://charlotte-frontend-app.azurewebsites.net"
@@ -161,6 +174,8 @@ show_help() {
     echo "Options:"
     echo "  --frontend-only    Build and push only frontend image"
     echo "  --backend-only     Build and push only backend image"
+    echo "  --tag <tag>        Image tag to use (default: $IMAGE_TAG)"
+    echo "  --api-url <url>    Frontend NEXT_PUBLIC_API_BASE_URL to bake at build time"
     echo "  --no-update        Skip updating web apps"
     echo "  --no-restart       Skip restarting web apps"
     echo "  --help             Show this help message"
@@ -186,6 +201,14 @@ while [[ $# -gt 0 ]]; do
         --backend-only)
             BACKEND_ONLY=true
             shift
+            ;;
+        --api-url)
+            FRONTEND_API_URL="$2"
+            shift 2
+            ;;
+        --tag)
+            IMAGE_TAG="$2"
+            shift 2
             ;;
         --no-update)
             NO_UPDATE=true
@@ -215,6 +238,7 @@ main() {
     check_azure_cli
     login_to_acr
     get_acr_server
+    ensure_buildx
     
     if [[ "$BACKEND_ONLY" == false ]]; then
         build_and_push_frontend
