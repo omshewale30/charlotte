@@ -206,15 +206,15 @@ az webapp config container set \
 ```bash
 # Storage Account (Standard LRS)
 az storage account create \
-  --name "edireportstorage" \
+  --name "edireportsstorage" \
   --resource-group "rg-primary-unc-foit-charlotte-ai" \
   --location "eastus" \
   --sku Standard_LRS \
   --kind StorageV2
 
 # Create blob containers
-az storage container create --account-name "edireportstorage" --name "edi-reports" --auth-mode login
-az storage container create --account-name "edireportstorage" --name "edi-json-structured" --auth-mode login
+az storage container create --account-name "edireportsstorage" --name "edi-reports" --auth-mode login
+az storage container create --account-name "edireportsstorage" --name "edi-json-structured" --auth-mode login
 
 # Azure AI Search (Free tier)
 az search service create \
