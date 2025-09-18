@@ -8,12 +8,18 @@ const apiUrl = {
   Development: "http://localhost:8000/api/chat",
 };
 
+function getAuthHeaders() {
+  const sessionId = typeof window !== 'undefined' ? localStorage.getItem('session_id') : null;
+  return sessionId ? { 'Authorization': `Bearer ${sessionId}` } : {};
+}
+
 export async function sendChatQuery({ query, conversation_id, messages }) {
   try {
-    const response = await fetch(apiUrl.Production, {
+    const response = await fetch(apiUrl.Development, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...getAuthHeaders(),
       },
       body: JSON.stringify({
         query,
@@ -21,9 +27,21 @@ export async function sendChatQuery({ query, conversation_id, messages }) {
         messages,
       }),
     });
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
+    
+    if (response.status === 401) {
+      // Redirect to login if unauthorized
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('session_id');
+        window.location.href = '/';
+      }
+      throw new Error('Authentication required');
     }
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || `API error: ${response.status}`);
+    }
+    
     return await response.json();
   } catch (error) {
     console.error("API call failed:", error);

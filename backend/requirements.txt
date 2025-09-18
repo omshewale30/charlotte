@@ -157,3 +157,5 @@ zipp==3.22.0
 zstandard==0.23.0
 PyPDF2==3.0.1
 azure-search-documents==11.5.3
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
