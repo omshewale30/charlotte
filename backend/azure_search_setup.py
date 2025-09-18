@@ -249,17 +249,29 @@ class EDISearchService:
             return {}
 
 def setup_azure_search_from_env():
-    """Initialize search service from environment variables"""
-    # Load environment variables from .env file
-    load_dotenv()
-    
+    """Initialize search service from environment variables.
+
+    Loads variables from `backend/.env` so the script works regardless of the
+    current working directory.
+    """
+    # Resolve the backend .env path relative to this file
+    backend_dir = os.path.dirname(os.path.abspath(__file__))
+    env_path = os.path.join(backend_dir, ".env")
+
+    # Load environment variables from backend/.env if it exists
+    load_dotenv(dotenv_path=env_path)
+
+    # Also load any process-level env vars (without overriding existing)
+    load_dotenv(override=False)
+
     endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
     api_key = os.getenv("AZURE_SEARCH_API_KEY")
-    
+    index_name = os.getenv("AZURE_SEARCH_INDEX_NAME", "edi-transactions")
+
     if not endpoint or not api_key:
-        raise ValueError("Please set AZURE_SEARCH_ENDPOINT and AZURE_SEARCH_API_KEY environment variables")
-    
-    return EDISearchService(endpoint, api_key)
+        raise ValueError("Please set AZURE_SEARCH_ENDPOINT and AZURE_SEARCH_API_KEY in backend/.env or environment")
+
+    return EDISearchService(endpoint, api_key, index_name=index_name)
 
 def main():
     """Main setup function"""

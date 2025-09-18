@@ -146,8 +146,8 @@ class EDISearchIntegration:
             # Setup OpenAI client for Azure
             openai_client = AzureOpenAI(
                 api_version="2024-12-01-preview",
-                api_key=os.getenv("AZURE_OPENAI_KEY"),
-                azure_endpoint="https://charlotte-resource.cognitiveservices.azure.com/",
+                api_key=os.getenv("AZURE_AI_KEY"),
+                azure_endpoint="https://charlotte-ai-resource.openai.azure.com/",
             )
             
             # Prompt for parameter extraction
