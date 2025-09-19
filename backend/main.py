@@ -332,7 +332,7 @@ edi_search = EDISearchIntegration()
 
 
 def setup_azure_client():
-    project_endpoint = os.getenv("AZURE_AI_ENDPOINT")
+    project_endpoint = os.getenv("AZURE_AI_PROJECT_ENDPOINT")
     tenant_id = os.getenv("AZURE_AD_TENANT_ID")
     client_id = os.getenv("AZURE_AD_CLIENT_ID")
     client_secret = os.getenv("AZURE_AD_CLIENT_SECRET")
@@ -340,7 +340,7 @@ def setup_azure_client():
         # Check for missing environment variables
     missing_vars = []
     if not project_endpoint:
-        missing_vars.append("AZURE_AI_ENDPOINT")
+        missing_vars.append("AZURE_AI_PROJECT_ENDPOINT")
     if not tenant_id:
         missing_vars.append("AZURE_AD_TENANT_ID")
     if not client_id:
