@@ -10,7 +10,6 @@ azure-ai-agents==1.0.2
 azure-ai-projects==1.0.0b12
 azure-core==1.35.0
 azure-identity==1.23.1
-azure-storage-blob==12.26.0
 backoff==2.2.1
 bcrypt==4.3.0
 beautifulsoup4==4.13.4
@@ -159,3 +158,4 @@ PyPDF2==3.0.1
 azure-search-documents==11.5.3
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+azure-storage-blob==12.26.0

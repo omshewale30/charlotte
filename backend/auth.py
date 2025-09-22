@@ -183,10 +183,7 @@ def require_unc_email(user: Dict = Depends(get_current_user)) -> Dict:
     valid_domains = [
         "@unc.edu", 
         "@email.unc.edu", 
-        "@charlotte.edu", 
-        "@email.charlotte.edu",
-        "@uncc.edu",
-        "@email.uncc.edu"
+        "@ad.unc.edu"
     ]
     
     is_valid = any(email.endswith(domain) for domain in valid_domains)
@@ -209,4 +206,4 @@ def check_user_permissions(user: Dict, required_permissions: list = None) -> boo
     
     # For now, just check if user has UNC email
     email = user.get("email", "")
-    return email.endswith("@unc.edu") or email.endswith("@charlotte.edu")
+    return email.endswith("@unc.edu") or email.endswith("@ad.unc.edu")
