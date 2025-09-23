@@ -10,7 +10,7 @@ const apiUrl = {
 
 export async function sendChatQuery({ query, conversation_id, messages }) {
   try {
-    const response = await fetch(apiUrl.Production, {
+    const response = await fetch(apiUrl.Development, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
