@@ -2,6 +2,8 @@
 
 import { cn } from "@/lib/utils";
 import { Loader2 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import { parseCitations, formatCitations } from "@/lib/format-content";
 
 export default function ChatMessage({ message }) {
   const isUser = message.role === "user";
@@ -28,7 +30,22 @@ export default function ChatMessage({ message }) {
           </div>
         ) : (
           <>
-            <div className="whitespace-pre-wrap">{message.content}</div>
+            {(() => {
+              const { cleanText, citations } = parseCitations(message.content);
+              return (
+                <>
+                  <div className="prose prose-sm max-w-none dark:prose-invert">
+                    <ReactMarkdown>{cleanText}</ReactMarkdown>
+                  </div>
+                  {citations.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-border/50 text-xs text-muted-foreground">
+                      <div className="font-medium">Citations:</div>
+                      <div>{formatCitations(citations)}</div>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
             {message.sources && message.sources.length > 0 && (
               <div className="mt-2 pt-2 border-t border-border/50 text-sm text-muted-foreground">
                 <div className="font-medium">Sources:</div>

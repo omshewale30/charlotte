@@ -18,7 +18,9 @@ from azure.search.documents.indexes.models import (
     ComplexField
 )
 from azure.core.credentials import AzureKeyCredential
+from azure.core.exceptions import ResourceNotFoundError
 import logging
+from azure_blob_container_client import AzureBlobContainerClient
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -46,6 +48,16 @@ class EDISearchService:
     def create_index(self) -> bool:
         """Create the search index with optimized fields for EDI data"""
         try:
+            # If index already exists, skip creation
+            try:
+                existing = self.index_client.get_index(self.index_name)
+                if existing:
+                    logger.info(f"Index '{self.index_name}' already exists. Skipping creation.")
+                    return True
+            except ResourceNotFoundError:
+                # Not found; proceed to create
+                pass
+
             # Define the index schema
             fields = [
                 SimpleField(name="id", type=SearchFieldDataType.String, key=True),
@@ -129,6 +141,30 @@ class EDISearchService:
             
         except Exception as e:
             logger.error(f"Error uploading transactions: {e}")
+            return False
+
+    def upload_documents(self, documents: List[Dict]) -> bool:
+        """Upload already-shaped documents to the search index."""
+        if not documents:
+            logger.warning("No documents provided for upload")
+            return False
+
+        try:
+            batch_size = 1000
+            total_uploaded = 0
+            for i in range(0, len(documents), batch_size):
+                batch = documents[i:i + batch_size]
+                try:
+                    result = self.search_client.upload_documents(documents=batch)
+                    successful = sum(1 for r in result if r.succeeded)
+                    total_uploaded += successful
+                    logger.info(f"Uploaded batch {i//batch_size + 1}: {successful}/{len(batch)} documents")
+                except Exception as batch_error:
+                    logger.error(f"Error uploading batch {i//batch_size + 1}: {batch_error}")
+            logger.info(f"Total documents uploaded: {total_uploaded}/{len(documents)}")
+            return total_uploaded > 0
+        except Exception as e:
+            logger.error(f"Error uploading documents: {e}")
             return False
     
     def search_by_amount_and_date(self, amount: float, date: str) -> List[Dict]:
@@ -273,12 +309,74 @@ def setup_azure_search_from_env():
 
     return EDISearchService(endpoint, api_key, index_name=index_name)
 
+
+def load_latest_transactions_from_blob() -> Optional[List[Dict]]:
+    """Download and return the latest transactions JSON from Azure Blob Storage.
+
+    Expects env vars:
+    - AZURE_STORAGE_CONNECTION_STRING
+    - EDI_JSON_OUTPUT_CONTAINER (defaults to 'edi-json-structured')
+    """
+    connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    container_name = os.getenv("EDI_JSON_OUTPUT_CONTAINER", "edi-json-structured")
+
+    if not connection_string:
+        logger.error("AZURE_STORAGE_CONNECTION_STRING is not set")
+        return None
+
+    try:
+        client = AzureBlobContainerClient(connection_string, container_name)
+        latest_blob = None
+        latest_ts = None
+        for blob in client.list_blobs():
+            name = getattr(blob, 'name', '')
+            if not name.lower().endswith('.json'):
+                continue
+            ts = getattr(blob, 'last_modified', None)
+            if latest_ts is None or (ts and ts > latest_ts):
+                latest_ts = ts
+                latest_blob = name
+
+        if not latest_blob:
+            logger.warning(f"No JSON blobs found in container '{container_name}'")
+            return None
+
+        logger.info(f"Downloading latest JSON blob: {latest_blob}")
+        data_bytes = client.download_blob_bytes(latest_blob)
+        data_text = data_bytes.decode('utf-8')
+        data = json.loads(data_text)
+        return data
+    except Exception as e:
+        logger.error(f"Failed to load JSON from Azure Blob: {e}")
+        return None
+
+
+def transactions_to_search_documents(transactions: List[Dict]) -> Dict:
+    """Transform raw transactions array into Azure Search document schema."""
+    search_documents: List[Dict] = []
+    for i, t in enumerate(transactions, 1):
+        doc = {
+            "id": str(i),
+            "trace_number": t.get("trace_number", ""),
+            "amount": t.get("amount", 0.0),
+            "effective_date": t.get("effective_date", ""),
+            "receiver": t.get("receiver", ""),
+            "originator": t.get("originator", ""),
+            "page_number": t.get("page_number"),
+            "routing_id_credit": t.get("routing_id_credit", ""),
+            "routing_id_debit": t.get("routing_id_debit", ""),
+            "company_id_debit": t.get("company_id_debit", ""),
+            "mutually_defined": t.get("mutually_defined", ""),
+            "file_name": t.get("file_name", ""),
+            "searchable_text": f"{t.get('amount', 0)} {t.get('effective_date', '')} {t.get('receiver', '')} {t.get('originator', '')} {t.get('trace_number', '')}"
+        }
+        search_documents.append(doc)
+    return {"documents": search_documents, "total_count": len(search_documents)}
+
 def main():
-    """Main setup function"""
+    """Main setup function using Azure Blob JSON as source"""
     print("Setting up Azure AI Search for EDI transactions...")
-    
-    # You'll need to set these environment variables
-    # Or replace with your actual values
+
     try:
         search_service = setup_azure_search_from_env()
     except ValueError as e:
@@ -290,29 +388,37 @@ def main():
         print("   export AZURE_SEARCH_ENDPOINT='https://your-service.search.windows.net'")
         print("   export AZURE_SEARCH_API_KEY='your-api-key'")
         return
-    
-    # Create the index
+
     print("Creating search index...")
     if search_service.create_index():
         print("✅ Index created successfully")
     else:
         print("❌ Failed to create index")
         return
-    
-    # Upload data
-    json_file = "./processed_data/search_index_data.json"
-    if os.path.exists(json_file):
-        print(f"Uploading data from {json_file}...")
-        if search_service.upload_transactions(json_file):
-            print("✅ Data uploaded successfully")
-        else:
-            print("❌ Failed to upload data")
-            return
-    else:
-        print(f"❌ Data file not found: {json_file}")
-        print("Please run the EDI preprocessor first to generate the data file")
+
+    # Load latest transactions JSON from Azure Blob
+    transactions = load_latest_transactions_from_blob()
+    if transactions is None:
+        print("❌ No transactions JSON available in Azure Blob.")
         return
-    
+
+    # The blob likely contains raw transactions (array). Transform.
+    if isinstance(transactions, dict) and 'documents' in transactions:
+        documents = transactions['documents']
+    elif isinstance(transactions, list):
+        shaped = transactions_to_search_documents(transactions)
+        documents = shaped['documents']
+    else:
+        print("❌ Unexpected JSON format in blob. Expected array of transactions or {documents: [...]}.")
+        return
+
+    print(f"Uploading {len(documents)} documents from Azure Blob...")
+    if search_service.upload_documents(documents):
+        print("✅ Data uploaded successfully")
+    else:
+        print("❌ Failed to upload data")
+        return
+
     # Test some queries
     print("\nTesting queries...")
     

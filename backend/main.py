@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse, JSONResponse
 from pydantic import BaseModel
 import os
 from typing import List, Optional, Dict
@@ -11,6 +12,9 @@ import re
 from datetime import datetime
 from openai import AzureOpenAI
 import json
+from auth import msal_auth, get_current_user, require_unc_email, get_optional_user
+from edi_preprocessor import EDIProcessor
+from azure_blob_container_client import AzureBlobContainerClient
 
 # Load environment variables from .env file
 load_dotenv()
@@ -92,6 +96,26 @@ class EDIResponse(BaseModel):
     query_type: str
     search_performed: bool
 
+# Auth-related models
+class AuthURL(BaseModel):
+    auth_url: str
+    state: str
+
+class AuthCallback(BaseModel):
+    session_id: str
+    user: Dict
+    expires_at: str
+
+class UserInfo(BaseModel):
+    id: str
+    email: str
+    name: str
+    given_name: Optional[str] = None
+    family_name: Optional[str] = None
+    job_title: Optional[str] = None
+    department: Optional[str] = None
+    office_location: Optional[str] = None
+
 
 # EDI Search Service Integration
 class EDISearchIntegration:
@@ -124,7 +148,7 @@ class EDISearchIntegration:
             # Setup OpenAI client for Azure
             openai_client = AzureOpenAI(
                 api_version="2024-12-01-preview",
-                api_key=os.getenv("AZURE_AI_KEY"),
+                api_key=os.getenv("AZURE_OPENAI_KEY"),
                 azure_endpoint="https://charlotte-ai-resource.openai.azure.com/",
             )
             
@@ -132,18 +156,25 @@ class EDISearchIntegration:
             system_prompt = """You are an expert at extracting structured data from natural language queries about financial transactions.
 
 Extract the following information from the user's query and return it as valid JSON:
-- amount: float or null (monetary amount like $92.39, 103.12 dollars, etc.)
-- date: string in YYYY-MM-DD format or null (dates like "June 2, 2025", "2nd June 2025", "6/2/2025", etc.)
+- amount: float or null (exact monetary amount like $92.39, 103.12 dollars, etc.)
+- amount_min: float or null (minimum amount for range queries like "over $100", "more than $50")  
+- amount_max: float or null (maximum amount for range queries like "under $200", "less than $100")
+- date: string in YYYY-MM-DD format or null (specific dates like "June 2, 2025", "2nd June 2025", "6/2/2025")
+- date_start: string in YYYY-MM-DD format or null (start date for ranges like "in June 2025", "from January")
+- date_end: string in YYYY-MM-DD format or null (end date for ranges like "in June 2025", "until March")
 - trace_number: string or null (specific transaction identifier - only if user provides one, NOT if they're asking for it)
 - originator: string or null (company names like BCBS, Blue Cross, United Healthcare, etc.)
-- query_type: string (one of: "amount_search", "trace_search", "originator_search", "date_search", "general")
+- query_type: string (one of: "count_all", "all_in_period", "amount_range", "date_range", "trace_search", "originator_search", "specific_lookup", "general")
 
 Query type rules:
-- If user asks "what is the trace number FOR" something, use amount_search/date_search, NOT trace_search
-- Use trace_search only when user provides a specific trace number to look up
-- Use amount_search when amount and date are both provided
-- Use date_search when only date is provided
-- Use originator_search when searching by company name
+- Use "count_all" for queries asking about total number, count, or "how many" transactions in database
+- Use "all_in_period" for queries like "all transactions in June", "show me transactions for 2025", "all payments in Q1"
+- Use "amount_range" for amount-based queries like "transactions over $100", "payments between $50-$200"
+- Use "date_range" for date-based queries like "transactions from Jan to March", "payments last month"
+- Use "trace_search" only when user provides a specific trace number to look up
+- Use "originator_search" when searching by company name
+- Use "specific_lookup" when user asks for specific details about exact amounts/dates
+- Use "general" for questions that don't fit other categories
 
 Return only valid JSON, no other text."""
 
@@ -157,19 +188,31 @@ Return only valid JSON, no other text."""
                 ],
                 temperature=0.1,
                 max_tokens=200
+
             )
             
             # Parse the AI response
             ai_response = response.choices[0].message.content.strip()
             logger.info(f"AI parameter extraction response: {ai_response}")
             
+            # Clean JSON response (remove markdown formatting if present)
+            json_text = ai_response
+            if json_text.startswith('```json'):
+                json_text = json_text.replace('```json', '').replace('```', '').strip()
+            elif json_text.startswith('```'):
+                json_text = json_text.replace('```', '').strip()
+            
             # Parse JSON response
-            params = json.loads(ai_response)
+            params = json.loads(json_text)
             
             # Validate and set defaults
             default_params = {
                 "amount": None,
+                "amount_min": None,
+                "amount_max": None,
                 "date": None,
+                "date_start": None,
+                "date_end": None,
                 "trace_number": None,
                 "originator": None,
                 "query_type": "general"
@@ -188,14 +231,18 @@ Return only valid JSON, no other text."""
             # Fallback to basic parameters
             return {
                 "amount": None,
+                "amount_min": None,
+                "amount_max": None,
                 "date": None,
+                "date_start": None,
+                "date_end": None,
                 "trace_number": None,
                 "originator": None,
                 "query_type": "general"
             }
     
     def search_transactions(self, params: Dict) -> List[Dict]:
-        """Search for transactions based on extracted parameters"""
+        """Search for transactions based on extracted parameters using flexible filters"""
         if not self.search_client:
             logger.warning("Search client not available")
             return []
@@ -203,106 +250,192 @@ Return only valid JSON, no other text."""
         logger.info(f"Searching with params: {params}")
         
         try:
-            if params["query_type"] == "amount_search" and params["amount"] and params["date"]:
-                # Exact amount and date search
-                filter_expr = f"amount eq {params['amount']} and effective_date eq '{params['date']}'"
-                logger.info(f"Using filter expression: {filter_expr}")
-                
-                results = self.search_client.search(
-                    search_text="",
-                    filter=filter_expr,
-                    select=["trace_number", "amount", "effective_date", "originator", "receiver", "page_number"],
-                    top=10
-                )
-                
-                # Convert results to list and log
-                result_list = [dict(result) for result in results]
-                logger.info(f"Search returned {len(result_list)} results: {result_list}")
-                return result_list
-                
-            elif params["query_type"] == "trace_search" and params["trace_number"]:
-                # Trace number search
-                filter_expr = f"trace_number eq '{params['trace_number']}'"
-                logger.info(f"Using trace filter expression: {filter_expr}")
-                results = self.search_client.search(
-                    search_text="",
-                    filter=filter_expr,
-                    select=["trace_number", "amount", "effective_date", "originator", "receiver", "page_number"],
-                    top=1
-                )
-                
-            elif params["query_type"] == "originator_search" and params["originator"]:
-                # Originator search
-                logger.info(f"Searching originator: {params['originator']}")
-                results = self.search_client.search(
-                    search_text=params["originator"],
-                    search_fields=["originator"],
-                    select=["trace_number", "amount", "effective_date", "originator", "receiver", "page_number"],
-                    top=20
-                )
-                
-            elif params["amount"]:
-                # Amount only search
-                filter_expr = f"amount eq {params['amount']}"
-                logger.info(f"Using amount filter expression: {filter_expr}")
-                results = self.search_client.search(
-                    search_text="",
-                    filter=filter_expr,
-                    select=["trace_number", "amount", "effective_date", "originator", "receiver", "page_number"],
-                    top=10
-                )
-                
-            elif params["date"]:
-                # Date only search
-                filter_expr = f"effective_date eq '{params['date']}'"
-                logger.info(f"Using date filter expression: {filter_expr}")
-                results = self.search_client.search(
-                    search_text="",
-                    filter=filter_expr,
-                    select=["trace_number", "amount", "effective_date", "originator", "receiver", "page_number"],
-                    top=50
-                )
-                
-            else:
-                logger.info("No matching search criteria found")
-                return []
+            filter_conditions = []
+            search_text = ""
+            top_count = 100  # Default limit
             
-            # Convert results to list for non-amount_search queries
-            if params["query_type"] != "amount_search":
-                result_list = [dict(result) for result in results]
-                logger.info(f"Search returned {len(result_list)} results")
-                return result_list
+            # Build filter conditions based on parameters
+            if params.get("amount"):
+                filter_conditions.append(f"amount eq {params['amount']}")
+            
+            if params.get("amount_min"):
+                filter_conditions.append(f"amount ge {params['amount_min']}")
+                
+            if params.get("amount_max"):
+                filter_conditions.append(f"amount le {params['amount_max']}")
+            
+            if params.get("date"):
+                filter_conditions.append(f"effective_date eq '{params['date']}'")
+                
+            if params.get("date_start"):
+                filter_conditions.append(f"effective_date ge '{params['date_start']}'")
+                
+            if params.get("date_end"):
+                filter_conditions.append(f"effective_date le '{params['date_end']}'")
+            
+            if params.get("trace_number"):
+                filter_conditions.append(f"trace_number eq '{params['trace_number']}'")
+                top_count = 1  # Only need one result for specific trace
+            
+            if params.get("originator"):
+                # Use search text for originator to allow partial matches
+                search_text = params["originator"]
+                
+            # Handle special query types
+            if params.get("query_type") == "count_all":
+                results = self.search_client.search(
+                    search_text="*",
+                    include_total_count=True,
+                    top=0
+                )
+                total_count = results.get_count()
+                logger.info(f"Total transactions count: {total_count}")
+                return [{"total_count": total_count, "query_type": "count_all"}]
+            
+            # If asking for all transactions (e.g., "all transactions in June")
+            if params.get("query_type") == "all_in_period":
+                top_count = 1000  # Increase limit for period queries
+            
+            # Build final filter expression
+            filter_expr = " and ".join(filter_conditions) if filter_conditions else None
+            
+            logger.info(f"Filter expression: {filter_expr}")
+            logger.info(f"Search text: '{search_text}'")
+            logger.info(f"Top count: {top_count}")
+            
+            # Execute search
+            search_params = {
+                "search_text": search_text,
+                "select": ["trace_number", "amount", "effective_date", "originator", "receiver", "page_number"],
+                "top": top_count,
+                "include_total_count": True
+            }
+            
+            if filter_expr:
+                search_params["filter"] = filter_expr
+                
+            if search_text and params.get("originator"):
+                search_params["search_fields"] = ["originator"]
+            
+            results = self.search_client.search(**search_params)
+            
+            # Convert results to list
+            result_list = [dict(result) for result in results]
+            total_found = results.get_count() if hasattr(results, 'get_count') else len(result_list)
+            
+            logger.info(f"Search returned {len(result_list)} results out of {total_found} total matches")
+            
+            # Add metadata about the search
+            if result_list:
+                result_list[0]["_search_metadata"] = {
+                    "total_matches": total_found,
+                    "returned_count": len(result_list),
+                    "query_params": params
+                }
+            
+            return result_list
             
         except Exception as e:
             logger.error(f"Search error: {e}")
             return []
     
-    def format_ai_response(self, question: str, transactions: List[Dict], params: Dict) -> str:
-        """Generate AI response based on search results"""
+    def prepare_context(self, transactions: List[Dict]) -> str:
+        """Prepare transaction data as context for the LLM"""
         if not transactions:
-            return f"I couldn't find any transactions matching your query. Please check the amount, date, or other details and try again."
+            return "No transactions found."
+            
+        # Handle count_all queries
+        if len(transactions) == 1 and "total_count" in transactions[0]:
+            return f"Total transactions in database: {transactions[0]['total_count']}"
         
-        # For specific amount + date queries
-        if params["amount"] and params["date"] and len(transactions) == 1:
-            t = transactions[0]
-            return f"The trace number for the ${t['amount']} transaction on {t['effective_date']} is {t['trace_number']}. This transaction was from {t['originator']} to {t['receiver']}."
+        # Filter out metadata from first transaction if present
+        clean_transactions = []
+        for t in transactions:
+            if "_search_metadata" in t:
+                metadata = t.pop("_search_metadata")
+                # Use metadata for summary if needed
+            clean_transactions.append(t)
         
-        # For trace number queries
-        elif params["trace_number"] and len(transactions) == 1:
-            t = transactions[0]
-            return f"Trace number {t['trace_number']} corresponds to a ${t['amount']} transaction on {t['effective_date']} from {t['originator']} to {t['receiver']}."
+        # Format transactions as structured context
+        context_parts = []
+        context_parts.append(f"Found {len(clean_transactions)} transactions:\n")
         
-        # For multiple results
-        elif len(transactions) > 1:
-            if params["amount"]:
-                return f"I found {len(transactions)} transactions for ${params['amount']}. The trace numbers are: {', '.join([t['trace_number'] for t in transactions[:5]])}{'...' if len(transactions) > 5 else ''}."
-            elif params["date"]:
-                total_amount = sum(t['amount'] for t in transactions)
-                return f"I found {len(transactions)} transactions on {params['date']} totaling ${total_amount:,.2f}. Would you like me to show specific details?"
-            else:
-                return f"I found {len(transactions)} matching transactions. Please provide more specific criteria to narrow down the results."
+        for i, t in enumerate(clean_transactions[:50], 1):  # Limit to first 50 for context
+            context_parts.append(
+                f"{i}. Trace: {t.get('trace_number', 'N/A')}, "
+                f"Amount: ${t.get('amount', 0):.2f}, "
+                f"Date: {t.get('effective_date', 'N/A')}, "
+                f"From: {t.get('originator', 'N/A')}, "
+                f"To: {t.get('receiver', 'N/A')}"
+            )
         
-        return "I found some transactions but couldn't determine the best way to present the results."
+        if len(clean_transactions) > 50:
+            context_parts.append(f"\n... and {len(clean_transactions) - 50} more transactions")
+            
+        return "\n".join(context_parts)
+    
+    def generate_rag_response(self, question: str, transactions: List[Dict], params: Dict) -> str:
+        """Generate RAG response by feeding transaction context to LLM"""
+        try:
+            # Setup OpenAI client
+            openai_client = AzureOpenAI(
+                api_version="2024-12-01-preview",
+                api_key=os.getenv("AZURE_OPENAI_KEY"),
+                azure_endpoint="https://charlotte-ai-resource.openai.azure.com/",
+            )
+            
+            # Prepare context from transactions
+            context = self.prepare_context(transactions)
+            
+            # Handle special cases
+            if not transactions:
+                return "I couldn't find any transactions matching your query. Please check the criteria and try again."
+            
+            # Handle count queries
+            if len(transactions) == 1 and "total_count" in transactions[0]:
+                count = transactions[0]["total_count"]
+                return f"I have **{count:,}** EDI transactions in the database."
+            
+            # Create system prompt for RAG response
+            system_prompt = """You are a financial transaction assistant with access to EDI transaction data. 
+            
+Your task is to analyze the provided transaction data and answer the user's question comprehensively.
+
+Guidelines:
+- Use the exact transaction data provided in the context
+- Be precise with numbers, dates, and amounts
+- Format monetary amounts clearly (e.g., $1,234.56)
+- If multiple transactions match, provide summaries and key insights
+- For date ranges, provide totals and breakdowns when relevant
+- Use **bold** for important numbers and key information
+- If the user asks for specific trace numbers, provide them clearly
+- If patterns emerge in the data, highlight them
+
+Transaction Data Context:
+{context}
+
+Answer the user's question based on this transaction data."""
+
+            user_prompt = f"User's question: {question}\n\nPlease analyze the transaction data and provide a comprehensive answer."
+            
+            response = openai_client.chat.completions.create(
+                model=os.getenv("SMALL_MODEL_NAME", "gpt-4o-mini"),
+                messages=[
+                    {"role": "system", "content": system_prompt.format(context=context)},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.1,
+                max_tokens=800
+            )
+            
+            ai_response = response.choices[0].message.content.strip()
+            logger.info(f"RAG response generated: {ai_response[:200]}...")
+            
+            return ai_response
+            
+        except Exception as e:
+            logger.error(f"Error generating RAG response: {e}")
+            return "I encountered an error while analyzing the transaction data. Please try again."
 
 
 # Initialize the EDI search integration
@@ -310,21 +443,21 @@ edi_search = EDISearchIntegration()
 
 
 def setup_azure_client():
-    project_endpoint = os.getenv("AZURE_AI_ENDPOINT")
-    tenant_id = os.getenv("AZURE_TENANT_ID")
-    client_id = os.getenv("AZURE_CLIENT_ID")
-    client_secret = os.getenv("AZURE_CLIENT_SECRET")
+    project_endpoint = os.getenv("AZURE_AI_PROJECT_ENDPOINT")
+    tenant_id = os.getenv("AZURE_AD_TENANT_ID")
+    client_id = os.getenv("AZURE_AD_CLIENT_ID")
+    client_secret = os.getenv("AZURE_AD_CLIENT_SECRET")
 
         # Check for missing environment variables
     missing_vars = []
     if not project_endpoint:
-        missing_vars.append("AZURE_AI_ENDPOINT")
+        missing_vars.append("AZURE_AI_PROJECT_ENDPOINT")
     if not tenant_id:
-        missing_vars.append("AZURE_TENANT_ID")
+        missing_vars.append("AZURE_AD_TENANT_ID")
     if not client_id:
-        missing_vars.append("AZURE_CLIENT_ID")
+        missing_vars.append("AZURE_AD_CLIENT_ID")
     if not client_secret:
-        missing_vars.append("AZURE_CLIENT_SECRET")
+        missing_vars.append("AZURE_AD_CLIENT_SECRET")
     
     if missing_vars:
         error_msg = f"Missing required Azure environment variables: {', '.join(missing_vars)}"
@@ -365,8 +498,89 @@ def get_agent(project_client):
         print(f"ERROR: {error_msg}")
         raise Exception(error_msg)
 
+# Authentication Routes
+@app.get("/auth/login", response_model=AuthURL)
+async def login():
+    """Initiate OAuth login flow"""
+    try:
+        auth_url, state = msal_auth.get_auth_url()
+        return AuthURL(auth_url=auth_url, state=state)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate auth URL: {str(e)}")
+
+@app.get("/auth/callback")
+async def auth_callback(code: str, state: str, error: Optional[str] = None):
+    """Handle OAuth callback"""
+    if error:
+        # Redirect to frontend with error
+        return RedirectResponse(url=f"http://localhost:3000/auth/callback?error={error}")
+    
+    if not code:
+        return RedirectResponse(url="http://localhost:3000/auth/callback?error=missing_code")
+    
+    try:
+        result = msal_auth.handle_callback(code, state)
+        
+        # Redirect to frontend with success data
+        session_id = result["session_id"]
+        return RedirectResponse(url=f"http://localhost:3000/auth/callback?session_id={session_id}&success=true")
+        
+    except HTTPException as e:
+        logger.error(f"Callback HTTPException: {e.detail}")
+        return RedirectResponse(url=f"http://localhost:3000/auth/callback?error={e.detail}")
+    except Exception as e:
+        logger.error(f"Callback error: {e}")
+        return RedirectResponse(url=f"http://localhost:3000/auth/callback?error=authentication_failed")
+
+@app.get("/auth/session/{session_id}")
+async def get_session_data(session_id: str):
+    """Get session data for frontend"""
+    session = msal_auth.verify_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired")
+    
+    return {
+        "success": True,
+        "session_id": session_id,
+        "user": session["user_info"],
+        "expires_at": session["expires_at"].isoformat()
+    }
+
+@app.get("/auth/user", response_model=UserInfo)
+async def get_user_info(user: Dict = Depends(require_unc_email)):
+    """Get current user information"""
+    return UserInfo(**user)
+
+@app.post("/auth/logout")
+async def logout(request: Request):
+    """Logout current user"""
+    # Extract session ID from Authorization header
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=400, detail="No session to logout")
+    
+    session_id = auth_header.split(" ")[1]
+    success = msal_auth.logout(session_id)
+    
+    return {"success": success, "message": "Logged out successfully" if success else "No active session"}
+
+@app.get("/auth/status")
+async def auth_status(user: Optional[Dict] = Depends(get_optional_user)):
+    """Check authentication status"""
+    if user:
+        return {
+            "authenticated": True,
+            "user": user
+        }
+    else:
+        return {
+            "authenticated": False,
+            "user": None
+        }
+
+# Protected Routes
 @app.post("/api/query", response_model=QueryResponse)
-async def query(request: QueryRequest):
+async def query(request: QueryRequest, user: Dict = Depends(require_unc_email)):
     """
     Query the agent
     """
@@ -434,7 +648,7 @@ async def query(request: QueryRequest):
 
 # EDI-specific endpoints
 @app.post("/api/edi/query", response_model=EDIResponse)
-async def query_edi_transactions(query: EDIQuery):
+async def query_edi_transactions(query: EDIQuery, user: Dict = Depends(require_unc_email)):
     """Main endpoint for EDI transaction queries"""
     
     try:
@@ -460,8 +674,8 @@ async def query_edi_transactions(query: EDIQuery):
             for t in transactions
         ]
         
-        # Generate AI response
-        ai_answer = edi_search.format_ai_response(query.question, transactions, params)
+        # Generate RAG response using LLM
+        ai_answer = edi_search.generate_rag_response(query.question, transactions, params)
         
         return EDIResponse(
             answer=ai_answer,
@@ -472,6 +686,7 @@ async def query_edi_transactions(query: EDIQuery):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing EDI query: {str(e)}")
+
 
 
 @app.get("/api/edi/stats")
@@ -529,7 +744,7 @@ async def search_by_amount(amount: float, date: Optional[str] = None):
 
 # Enhanced query endpoint that handles both EDI queries and general AI chat
 @app.post("/api/chat")
-async def enhanced_chat(request: QueryRequest):
+async def enhanced_chat(request: QueryRequest, user: Dict = Depends(require_unc_email)):
     """Enhanced chat endpoint that handles both EDI queries and general AI chat"""
     
     # Check if this is an EDI-related query
@@ -558,6 +773,23 @@ async def enhanced_chat(request: QueryRequest):
             "conversation_id": ai_response["conversation_id"]
         }
 
+
+@app.post("/api/edi-preprocess")
+async def edi_preprocess(request: Request):
+    """Connect to Azure Blob Storage, then run the edi_preprocessor.py script to preprocess the EDI transactions in the blob storage"""
+
+    # Connect to Azure Blob Storage
+    blob_service_client = AzureBlobContainerClient(os.getenv("AZURE_STORAGE_CONNECTION_STRING"), os.getenv("AZURE_STORAGE_CONTAINER_NAME"))
+    container_client = blob_service_client.get_container_client(os.getenv("AZURE_STORAGE_CONTAINER_NAME"))
+    
+    # Run the edi_preprocessor.py script to preprocess the EDI transactions in the blob storage
+    edi_preprocessor = EDIProcessor()
+    edi_preprocessor.preprocess_edi_transactions()
+    
+    
+    return {
+        "message": "EDI transactions preprocessed"
+    }
 
 if __name__ == "__main__":
 
