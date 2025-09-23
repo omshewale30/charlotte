@@ -12,7 +12,7 @@ export default function ChatInterface() {
   const [messages, setMessages] = useState([
     {
       role: "assistant",
-      content: "Hello! I'm Charlotte. I can answer questions about the Cashier Office procedures based on the instruction manuals in my database. How can I help you today?",
+      content: "Hello! I'm Charlotte. I can answer questions about transactions or processes. How can I help you today?",
     },
   ]);
   const [input, setInput] = useState("");
@@ -100,9 +100,7 @@ export default function ChatInterface() {
 
   return (
     <Card className="w-full">
-      <CardHeader>
-        <CardTitle className="text-center text-lg text-muted-foreground">Ask questions about Cashier Office procedures</CardTitle>
-      </CardHeader>
+
       <CardContent>
         <div className="space-y-4 h-[500px] overflow-y-auto p-4 rounded-md bg-muted/30">
           {messages.map((message, index) => (

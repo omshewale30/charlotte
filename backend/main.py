@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse
 from pydantic import BaseModel
@@ -15,6 +15,7 @@ import json
 from auth import msal_auth, get_current_user, require_unc_email, get_optional_user
 from edi_preprocessor import EDIProcessor
 from azure_blob_container_client import AzureBlobContainerClient
+from incremental_index_updater import IncrementalIndexUpdater
 
 # Load environment variables from .env file
 load_dotenv()
@@ -781,15 +782,164 @@ async def edi_preprocess(request: Request):
     # Connect to Azure Blob Storage
     blob_service_client = AzureBlobContainerClient(os.getenv("AZURE_STORAGE_CONNECTION_STRING"), os.getenv("AZURE_STORAGE_CONTAINER_NAME"))
     container_client = blob_service_client.get_container_client(os.getenv("AZURE_STORAGE_CONTAINER_NAME"))
-    
+
     # Run the edi_preprocessor.py script to preprocess the EDI transactions in the blob storage
     edi_preprocessor = EDIProcessor()
     edi_preprocessor.preprocess_edi_transactions()
-    
-    
+
+
     return {
         "message": "EDI transactions preprocessed"
     }
+
+
+@app.post("/api/upload-edi-report")
+async def upload_edi_report(
+    file: UploadFile = File(...),
+    user: Dict = Depends(require_unc_email)
+):
+    """Upload EDI report to Azure Blob Storage"""
+
+    try:
+        # Validate file type
+        allowed_extensions = {'.pdf', '.txt', '.csv', '.xlsx', '.xls'}
+        file_extension = os.path.splitext(file.filename)[1].lower()
+
+        if file_extension not in allowed_extensions:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File type {file_extension} not allowed. Allowed types: {', '.join(allowed_extensions)}"
+            )
+
+        # Read file content
+        file_content = await file.read()
+
+        if len(file_content) == 0:
+            raise HTTPException(status_code=400, detail="File is empty")
+
+        # Initialize Azure Blob client for edi-reports container
+        connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+        container_name = "edi-reports"
+
+        if not connection_string:
+            raise HTTPException(status_code=500, detail="Azure Storage configuration not found")
+
+        blob_client = AzureBlobContainerClient(connection_string, container_name)
+
+        # Use original filename to allow Azure's duplicate detection to work
+        blob_name = file.filename
+
+        # Upload to Azure Blob Storage - let Azure handle duplicates
+        try:
+            blob_client.upload_blob(blob_name, file_content, overwrite=False)
+        except Exception as upload_error:
+            # If file already exists, Azure will raise an exception
+            if "BlobAlreadyExists" in str(upload_error) or "already exists" in str(upload_error).lower():
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"File '{file.filename}' already exists in the container"
+                )
+            else:
+                raise upload_error
+
+        logger.info(f"File uploaded successfully: {blob_name} by user {user.get('email', 'unknown')}")
+
+        return {
+            "success": True,
+            "message": "File uploaded successfully",
+            "filename": file.filename,
+            "blob_name": blob_name,
+            "size": len(file_content),
+            "uploaded_by": user.get('email')
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
+
+
+@app.post("/api/update-search-index")
+async def update_search_index(user: Dict = Depends(require_unc_email)):
+    """Update search index with new EDI files incrementally"""
+
+    try:
+        logger.info(f"Starting incremental search index update requested by {user.get('email', 'unknown')}")
+
+        # Initialize the incremental updater
+        updater = IncrementalIndexUpdater()
+
+        # Perform the incremental update
+        result = updater.perform_incremental_update()
+
+        if result["success"]:
+            logger.info(f"Incremental update completed: {result['message']}")
+            return {
+                "success": True,
+                "message": result["message"],
+                "details": {
+                    "new_files_processed": result.get("new_files_count", 0),
+                    "transactions_added": result.get("transactions_added", 0),
+                    "processed_files": result.get("processed_files", [])
+                },
+                "updated_by": user.get('email')
+            }
+        else:
+            logger.error(f"Incremental update failed: {result['message']}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Search index update failed: {result['message']}"
+            )
+
+    except Exception as e:
+        logger.error(f"Error in incremental search index update: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update search index: {str(e)}"
+        )
+
+
+@app.get("/api/search-index-status")
+async def get_search_index_status(user: Dict = Depends(require_unc_email)):
+    """Get current search index status and information about new files"""
+
+    try:
+        updater = IncrementalIndexUpdater()
+
+        # Find new files without processing them
+        new_files, registry = updater.find_new_and_updated_files()
+
+        # Get search index statistics
+        search_service = updater.get_search_service()
+        search_stats = search_service.get_statistics()
+
+        return {
+            "success": True,
+            "search_index": {
+                "total_transactions": search_stats.get("total_transactions", 0),
+                "earliest_date": search_stats.get("earliest_date"),
+                "latest_date": search_stats.get("latest_date"),
+                "index_name": search_stats.get("index_name")
+            },
+            "pending_updates": {
+                "new_files_count": len(new_files),
+                "new_files": new_files[:10] if new_files else [],  # Show first 10 files
+                "has_more": len(new_files) > 10
+            },
+            "last_registry_info": {
+                "total_processed_files": len(registry),
+                "last_update": max([info.processed_at for info in registry.values()]) if registry else None
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting search index status: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get search index status: {str(e)}"
+        )
+
 
 if __name__ == "__main__":
 
