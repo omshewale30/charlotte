@@ -11,7 +11,7 @@ export default function AuthCallback() {
   const [loading, setLoading] = useState(true);
   const [localError, setLocalError] = useState(null);
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
   useEffect(() => {
     const handleCallback = async () => {
