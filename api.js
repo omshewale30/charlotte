@@ -1,11 +1,13 @@
 // api.js
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "https://charlotte-backend-app.azurewebsites.net";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 
+  (process.env.NODE_ENV === 'development' 
+    ? 'http://localhost:8000' 
+    : 'https://charlotte-backend.azurewebsites.net');
 
-const apiUrl = {
-  Production: `${API_BASE_URL}/api/chat`,
-  Development: "http://localhost:8000/api/chat",
+const API_ENDPOINTS = {
+  chat: `${API_BASE_URL}/api/chat`,
+  uploadEdi: `${API_BASE_URL}/api/upload-edi-report`,
 };
 
 function getAuthHeaders() {
@@ -15,7 +17,7 @@ function getAuthHeaders() {
 
 export async function sendChatQuery({ query, conversation_id, messages }) {
   try {
-    const response = await fetch(apiUrl.Development, {
+    const response = await fetch(API_ENDPOINTS.chat, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -103,8 +105,7 @@ export async function uploadEDIReport(file, onProgress) {
       };
 
       // Start upload
-      const uploadUrl = 'http://localhost:8000/api/upload-edi-report';
-      xhr.open('POST', uploadUrl);
+      xhr.open('POST', API_ENDPOINTS.uploadEdi);
       xhr.setRequestHeader('Authorization', `Bearer ${sessionId}`);
       xhr.send(formData);
     });
