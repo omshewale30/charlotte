@@ -221,8 +221,11 @@ update_web_apps() {
         --name "charlotte-frontend" \
         --resource-group "$RESOURCE_GROUP" \
         --settings \
-            "NEXT_PUBLIC_API_BASE_URL=https://charlotte-backend.azurewebsites.net" \
-            "NODE_ENV=production"
+            "NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL" \
+            "NODE_ENV=production" \
+            "NEXT_PUBLIC_AZURE_AD_CLIENT_ID=$AZURE_AD_CLIENT_ID" \
+            "NEXT_PUBLIC_AZURE_AD_TENANT_ID=$AZURE_AD_TENANT_ID"
+   
     
     # Update backend web app
     print_status "Updating backend web app..."
@@ -257,7 +260,6 @@ update_web_apps() {
             "AZURE_STORAGE_KEY=$AZURE_STORAGE_KEY" \
             "PYTHONDONTWRITEBYTECODE=1" \
             "PYTHONUNBUFFERED=1" \
-            "NEXT_PUBLIC_API_BASE_URL=https://charlotte-backend.azurewebsites.net"
     
     print_status "Web apps updated successfully"
 }
