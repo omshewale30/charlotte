@@ -11,7 +11,7 @@ RESOURCE_GROUP="rg-primary-unc-foit-charlotte-ai"
 IMAGE_TAG="${IMAGE_TAG:-1.0.0}"
 
 # Frontend environment variables
-NEXT_PUBLIC_API_BASE_URL="${NEXT_PUBLIC_API_BASE_URL:-https://charlotte-backend-app.azurewebsites.net}"
+NEXT_PUBLIC_API_BASE_URL="${NEXT_PUBLIC_API_BASE_URL:-https://charlotte-backend.azurewebsites.net}"
 
 # Backend environment variables
 AZURE_SEARCH_ENDPOINT="${AZURE_SEARCH_ENDPOINT:-}"
@@ -25,7 +25,7 @@ AZURE_AGENT_ID="${AZURE_AGENT_ID:-}"
 AZURE_OPENAI_KEY="${AZURE_OPENAI_KEY:-}"
 SMALL_MODEL_NAME="${SMALL_MODEL_NAME:-gpt-4o-mini}"
 AZURE_AI_RESOURCE_ENDPOINT="${AZURE_AI_RESOURCE_ENDPOINT:-}"
-AZURE_AD_REDIRECT_URI="${AZURE_AD_REDIRECT_URI:-https://charlotte-backend-app.azurewebsites.net/auth/callback}"
+AZURE_AD_REDIRECT_URI="${AZURE_AD_REDIRECT_URI:-https://charlotte-backend.azurewebsites.net/auth/callback}"
 AZURE_STORAGE_CONTAINER_NAME="${AZURE_STORAGE_CONTAINER_NAME:-edi-reports}"
 EDI_JSON_OUTPUT_CONTAINER="${EDI_JSON_OUTPUT_CONTAINER:-edi-json-structured}"
 AZURE_STORAGE_CONNECTION_STRING="${AZURE_STORAGE_CONNECTION_STRING:-}"
@@ -102,7 +102,7 @@ validate_env_vars() {
     
     # Required for frontend
     if [[ -z "$NEXT_PUBLIC_API_BASE_URL" ]]; then
-        print_warning "NEXT_PUBLIC_API_BASE_URL not set, using default: https://charlotte-backend-app.azurewebsites.net"
+        print_warning "NEXT_PUBLIC_API_BASE_URL not set, using default: https://charlotte-backend.azurewebsites.net"
         NEXT_PUBLIC_API_BASE_URL="https://charlotte-backend-app.azurewebsites.net"
     fi
     
