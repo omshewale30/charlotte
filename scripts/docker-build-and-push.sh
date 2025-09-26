@@ -72,18 +72,8 @@ check_azure_cli() {
 # Function to load environment variables from .env files
 load_env_files() {
     print_status "Loading environment variables from .env files..."
-    
-    # Load frontend environment variables
-    if [[ -f ".env.local" ]]; then
-        print_status "Loading frontend variables from .env.local..."
-        set -a  # automatically export all variables
-        source .env.local
-        set +a  # stop auto-exporting
-    else
-        print_warning ".env.local not found, skipping frontend env vars"
-    fi
-    
-    # Load backend environment variables
+
+    # Load backend environment variables (contains Azure AD vars we need)
     if [[ -f "backend/.env" ]]; then
         print_status "Loading backend variables from backend/.env..."
         set -a  # automatically export all variables
@@ -92,7 +82,11 @@ load_env_files() {
     else
         print_warning "backend/.env not found, skipping backend env vars"
     fi
-    
+
+    # Override API base URL for production deployment
+    print_status "Setting production API base URL..."
+    NEXT_PUBLIC_API_BASE_URL="https://charlotte-backend.azurewebsites.net"
+
     print_status "Environment variables loaded from files"
 }
 
@@ -103,7 +97,7 @@ validate_env_vars() {
     # Required for frontend
     if [[ -z "$NEXT_PUBLIC_API_BASE_URL" ]]; then
         print_warning "NEXT_PUBLIC_API_BASE_URL not set, using default: https://charlotte-backend.azurewebsites.net"
-        NEXT_PUBLIC_API_BASE_URL="https://charlotte-backend-app.azurewebsites.net"
+        NEXT_PUBLIC_API_BASE_URL="https://charlotte-backend.azurewebsites.net"
     fi
     
     # Check for required backend environment variables
@@ -179,6 +173,8 @@ build_and_push_frontend() {
         --platform linux/amd64 \
         -f Dockerfile \
         --build-arg NEXT_PUBLIC_API_BASE_URL="$NEXT_PUBLIC_API_BASE_URL" \
+        --build-arg NEXT_PUBLIC_AZURE_AD_CLIENT_ID="$AZURE_AD_CLIENT_ID" \
+        --build-arg NEXT_PUBLIC_AZURE_AD_TENANT_ID="$AZURE_AD_TENANT_ID" \
         -t "$ACR_SERVER/charlotte-frontend:$IMAGE_TAG" \
         -t "$ACR_SERVER/charlotte-frontend:latest" \
         . \

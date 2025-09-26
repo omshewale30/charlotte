@@ -9,9 +9,13 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 COPY . .
 COPY --from=deps /app/node_modules ./node_modules
-# Accept backend API base URL for Next.js at build time
+# Accept environment variables for Next.js at build time
 ARG NEXT_PUBLIC_API_BASE_URL
+ARG NEXT_PUBLIC_AZURE_AD_CLIENT_ID
+ARG NEXT_PUBLIC_AZURE_AD_TENANT_ID
 ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
+ENV NEXT_PUBLIC_AZURE_AD_CLIENT_ID=${NEXT_PUBLIC_AZURE_AD_CLIENT_ID}
+ENV NEXT_PUBLIC_AZURE_AD_TENANT_ID=${NEXT_PUBLIC_AZURE_AD_TENANT_ID}
 RUN npm run build
 
 # Production image, copy all the files and run next
