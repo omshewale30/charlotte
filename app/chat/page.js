@@ -3,7 +3,7 @@
 import ChatInterface from "@/components/chat-interface";
 import Header from "@/components/header";
 import ProtectedRoute from "@/components/protected-route";
-import { useAuth } from "@/components/auth-context";
+import { useAuth } from "@/components/auth-context-msal";
 
 export default function ChatPage() {
   const { user } = useAuth();

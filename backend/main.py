@@ -12,7 +12,7 @@ import re
 from datetime import datetime
 from openai import AzureOpenAI
 import json
-from auth import msal_auth, get_current_user, require_unc_email, get_optional_user
+from auth import get_current_user, require_unc_email, get_optional_user
 from edi_preprocessor import EDIProcessor
 from azure_blob_container_client import AzureBlobContainerClient
 from incremental_index_updater import IncrementalIndexUpdater
@@ -96,26 +96,6 @@ class EDIResponse(BaseModel):
     transactions: List[TransactionResult]
     query_type: str
     search_performed: bool
-
-# Auth-related models
-class AuthURL(BaseModel):
-    auth_url: str
-    state: str
-
-class AuthCallback(BaseModel):
-    session_id: str
-    user: Dict
-    expires_at: str
-
-class UserInfo(BaseModel):
-    id: str
-    email: str
-    name: str
-    given_name: Optional[str] = None
-    family_name: Optional[str] = None
-    job_title: Optional[str] = None
-    department: Optional[str] = None
-    office_location: Optional[str] = None
 
 
 # EDI Search Service Integration
@@ -499,85 +479,6 @@ def get_agent(project_client):
         print(f"ERROR: {error_msg}")
         raise Exception(error_msg)
 
-# Authentication Routes
-@app.get("/auth/login", response_model=AuthURL)
-async def login():
-    """Initiate OAuth login flow"""
-    try:
-        auth_url, state = msal_auth.get_auth_url()
-        return AuthURL(auth_url=auth_url, state=state)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate auth URL: {str(e)}")
-
-@app.get("/auth/callback")
-async def auth_callback(code: str, state: str, error: Optional[str] = None):
-    """Handle OAuth callback"""
-    if error:
-        # Redirect to frontend with error
-        return RedirectResponse(url=f"http://localhost:3000/auth/callback?error={error}")
-    
-    if not code:
-        return RedirectResponse(url="http://localhost:3000/auth/callback?error=missing_code")
-    
-    try:
-        result = msal_auth.handle_callback(code, state)
-        
-        # Redirect to frontend with success data
-        session_id = result["session_id"]
-        return RedirectResponse(url=f"http://localhost:3000/auth/callback?session_id={session_id}&success=true")
-        
-    except HTTPException as e:
-        logger.error(f"Callback HTTPException: {e.detail}")
-        return RedirectResponse(url=f"http://localhost:3000/auth/callback?error={e.detail}")
-    except Exception as e:
-        logger.error(f"Callback error: {e}")
-        return RedirectResponse(url=f"http://localhost:3000/auth/callback?error=authentication_failed")
-
-@app.get("/auth/session/{session_id}")
-async def get_session_data(session_id: str):
-    """Get session data for frontend"""
-    session = msal_auth.verify_session(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found or expired")
-    
-    return {
-        "success": True,
-        "session_id": session_id,
-        "user": session["user_info"],
-        "expires_at": session["expires_at"].isoformat()
-    }
-
-@app.get("/auth/user", response_model=UserInfo)
-async def get_user_info(user: Dict = Depends(require_unc_email)):
-    """Get current user information"""
-    return UserInfo(**user)
-
-@app.post("/auth/logout")
-async def logout(request: Request):
-    """Logout current user"""
-    # Extract session ID from Authorization header
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=400, detail="No session to logout")
-    
-    session_id = auth_header.split(" ")[1]
-    success = msal_auth.logout(session_id)
-    
-    return {"success": success, "message": "Logged out successfully" if success else "No active session"}
-
-@app.get("/auth/status")
-async def auth_status(user: Optional[Dict] = Depends(get_optional_user)):
-    """Check authentication status"""
-    if user:
-        return {
-            "authenticated": True,
-            "user": user
-        }
-    else:
-        return {
-            "authenticated": False,
-            "user": None
-        }
 
 # Protected Routes
 @app.post("/api/query", response_model=QueryResponse)

@@ -1,64 +1,41 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
-import { useAuth } from '@/components/auth-context';
+import { useRouter } from 'next/navigation';
+import { useMsal } from "@azure/msal-react";
 
 export default function AuthCallback() {
-  const searchParams = useSearchParams();
   const router = useRouter();
-  const { setUser, setError } = useAuth();
+  const { instance, accounts } = useMsal();
   const [loading, setLoading] = useState(true);
   const [localError, setLocalError] = useState(null);
-
-  const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
   useEffect(() => {
     const handleCallback = async () => {
       try {
-        const sessionId = searchParams.get('session_id');
-        const success = searchParams.get('success');
-        const errorParam = searchParams.get('error');
-
-        if (errorParam) {
-          setLocalError(errorParam);
-          setError(errorParam);
-          return;
-        }
-
-        if (success === 'true' && sessionId) {
-          // Fetch session data from backend
-          const response = await fetch(`${API_BASE}/auth/session/${sessionId}`);
-          
-          if (!response.ok) {
-            throw new Error('Failed to fetch session data');
-          }
-
-          const data = await response.json();
-          
-          // Store session and user data
-          localStorage.setItem('session_id', data.session_id);
-          setUser(data.user);
-          
-          // Redirect to chat
+        // MSAL automatically handles the authentication response
+        // Check if we have authenticated accounts
+        if (accounts && accounts.length > 0) {
+          // Authentication successful, redirect to chat
           router.push('/chat');
-          return;
+        } else {
+          // No accounts means authentication failed or in progress
+          setTimeout(() => {
+            if (accounts.length === 0) {
+              setLocalError('Authentication failed - no account found');
+            }
+          }, 2000); // Give MSAL some time to process
         }
-
-        // If no session_id or success, something went wrong
-        setLocalError('Invalid callback parameters');
-        
       } catch (error) {
         console.error('Callback processing error:', error);
         setLocalError(error.message);
-        setError(error.message);
       } finally {
         setLoading(false);
       }
     };
 
     handleCallback();
-  }, [searchParams, router, setUser, setError, API_BASE]);
+  }, [accounts, router]);
 
   if (localError) {
     return (

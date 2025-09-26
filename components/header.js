@@ -2,7 +2,7 @@
 
 import { Database, LogOut, User, Upload, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/components/auth-context";
+import { useAuth } from "@/components/auth-context-msal";
 import {
   DropdownMenu,
   DropdownMenuContent,

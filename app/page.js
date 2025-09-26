@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useAuth } from "@/components/auth-context";
+import { useAuth } from "@/components/auth-context-msal";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import Navigation from "@/components/navigation";

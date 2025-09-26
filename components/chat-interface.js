@@ -6,9 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import ChatMessage from "@/components/chat-message";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { sendChatQuery } from "../api";
+import { APIClient } from "@/lib/api-client";
+import { useAuth } from "@/components/auth-context-msal";
 
 export default function ChatInterface() {
+  const { getAuthHeaders } = useAuth();
   const [messages, setMessages] = useState([
     {
       role: "assistant",
@@ -19,6 +21,9 @@ export default function ChatInterface() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [conversationId, setConversationId] = useState(null);
   const messagesEndRef = useRef(null);
+  
+  // Create API client instance
+  const apiClient = new APIClient(getAuthHeaders);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -46,7 +51,7 @@ export default function ChatInterface() {
     setIsSubmitting(true);
     
     try {
-      const data = await sendChatQuery({
+      const data = await apiClient.sendChatQuery({
         query: userMessage,
         conversation_id: conversationId,
         messages: messages.map(msg => ({

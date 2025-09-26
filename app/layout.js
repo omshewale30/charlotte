@@ -1,6 +1,6 @@
 import './globals.css';
 import { Inter } from 'next/font/google';
-import { AuthProvider } from '@/components/auth-context';
+import MsalProviderWrapper from '@/components/msal-provider-wrapper';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -13,9 +13,9 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body className={inter.className}>
-        <AuthProvider>
+        <MsalProviderWrapper>
           {children}
-        </AuthProvider>
+        </MsalProviderWrapper>
       </body>
     </html>
   );

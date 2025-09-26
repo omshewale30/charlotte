@@ -13,9 +13,11 @@ import {
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { uploadEDIReport, uploadMultipleEDIReports } from "@/api";
+import { APIClient } from "@/lib/api-client";
+import { useAuth } from "@/components/auth-context-msal";
 
 export default function UploadModal({ isOpen, onClose }) {
+  const { getAuthHeaders } = useAuth();
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -24,6 +26,9 @@ export default function UploadModal({ isOpen, onClose }) {
   const [fileResults, setFileResults] = useState([]);
   const [currentFileName, setCurrentFileName] = useState('');
   const fileInputRef = useRef(null);
+  
+  // Create API client instance
+  const apiClient = new APIClient(getAuthHeaders);
 
   const allowedTypes = ['.pdf', '.txt', '.csv', '.xlsx', '.xls'];
   const maxFileSize = 50 * 1024 * 1024; // 50MB
@@ -98,7 +103,7 @@ export default function UploadModal({ isOpen, onClose }) {
     try {
       if (selectedFiles.length === 1) {
         // Single file upload
-        const response = await uploadEDIReport(selectedFiles[0], (progress) => {
+        const response = await apiClient.uploadEDIReport(selectedFiles[0], (progress) => {
           setUploadProgress(progress);
           setCurrentFileName(selectedFiles[0].name);
         });
@@ -108,7 +113,7 @@ export default function UploadModal({ isOpen, onClose }) {
         setUploadProgress(100);
       } else {
         // Multiple file upload
-        const results = await uploadMultipleEDIReports(
+        const results = await apiClient.uploadMultipleEDIReports(
           selectedFiles,
           (progress, fileIndex, fileName) => {
             setUploadProgress(progress);

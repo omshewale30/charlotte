@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { useAuth } from '@/components/auth-context';
+import { useAuth } from '@/components/auth-context-msal';
 
 export default function Navigation() {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -53,10 +53,10 @@ export default function Navigation() {
 
           {/* Desktop CTA Button */}
           <div className="hidden md:flex items-center space-x-4">
-            {!isAuthenticated() ? (
+            {loading ? (
               <Button 
                 onClick={handleLogin}
-                disabled={loading}
+                disabled={true}
                 className="btn-primary"
                 size="sm"
               >
