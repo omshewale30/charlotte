@@ -45,6 +45,67 @@ async def lifespan(app: FastAPI):
 
 session_threads = {}
 
+# Conversation memory storage for EDI queries
+edi_conversation_memory = {}
+
+class ConversationMemory:
+    """Manages conversation memory for EDI queries"""
+    
+    def __init__(self):
+        self.memories = {}
+    
+    def get_conversation_history(self, conversation_id: str) -> List[Dict]:
+        """Get conversation history for a given conversation ID"""
+        if conversation_id and conversation_id in self.memories:
+            return self.memories[conversation_id]
+        return []
+    
+    def add_message(self, conversation_id: str, role: str, content: str, metadata: Dict = None):
+        """Add a message to conversation history"""
+        if not conversation_id:
+            return
+            
+        if conversation_id not in self.memories:
+            self.memories[conversation_id] = []
+        
+        message = {
+            "role": role,
+            "content": content,
+            "timestamp": datetime.now().isoformat(),
+            "metadata": metadata or {}
+        }
+        
+        self.memories[conversation_id].append(message)
+        
+        # Keep only last 20 messages to prevent memory bloat
+        if len(self.memories[conversation_id]) > 20:
+            self.memories[conversation_id] = self.memories[conversation_id][-20:]
+    
+    def get_relevant_context(self, conversation_id: str, current_query: str, max_messages: int = 5) -> str:
+        """Get relevant conversation context for the current query"""
+        history = self.get_conversation_history(conversation_id)
+        
+        if not history:
+            return ""
+        
+        # Get recent messages (excluding the current one)
+        recent_messages = history[-max_messages:] if len(history) > max_messages else history
+        
+        context_parts = []
+        for msg in recent_messages:
+            if msg["role"] == "user":
+                context_parts.append(f"User: {msg['content']}")
+            elif msg["role"] == "assistant":
+                context_parts.append(f"Assistant: {msg['content']}")
+        
+        if context_parts:
+            return "Previous conversation context:\n" + "\n".join(context_parts) + "\n\n"
+        
+        return ""
+
+# Initialize conversation memory
+conversation_memory = ConversationMemory()
+
 # Initialize FastAPI app
 app = FastAPI(title="Charlotte",
               description="Charlotte is a chatbot that can answer questions about the UNC Charlotte campus and its resources.",
@@ -82,6 +143,8 @@ class QueryResponse(BaseModel):
 # EDI-specific models
 class EDIQuery(BaseModel):
     question: str
+    conversation_id: Optional[str] = None
+    messages: Optional[List[Message]] = None
 
 class TransactionResult(BaseModel):
     trace_number: str
@@ -355,8 +418,8 @@ Return only valid JSON, no other text."""
             
         return "\n".join(context_parts)
     
-    def generate_rag_response(self, question: str, transactions: List[Dict], params: Dict) -> str:
-        """Generate RAG response by feeding transaction context to LLM"""
+    def generate_rag_response(self, question: str, transactions: List[Dict], params: Dict, conversation_id: str = None) -> str:
+        """Generate RAG response by feeding transaction context to LLM with conversation memory"""
         try:
             # Setup OpenAI client
             openai_client = AzureOpenAI(
@@ -368,6 +431,11 @@ Return only valid JSON, no other text."""
             # Prepare context from transactions
             context = self.prepare_context(transactions)
             
+            # Get conversation context if available
+            conversation_context = ""
+            if conversation_id:
+                conversation_context = conversation_memory.get_relevant_context(conversation_id, question)
+            
             # Handle special cases
             if not transactions:
                 return "I couldn't find any transactions matching your query. Please check the criteria and try again."
@@ -377,7 +445,7 @@ Return only valid JSON, no other text."""
                 count = transactions[0]["total_count"]
                 return f"I have **{count:,}** EDI transactions in the database."
             
-            # Create system prompt for RAG response
+            # Create system prompt for RAG response with conversation context
             system_prompt = """You are a financial transaction assistant with access to EDI transaction data. 
             
 Your task is to analyze the provided transaction data and answer the user's question comprehensively.
@@ -391,18 +459,23 @@ Guidelines:
 - Use **bold** for important numbers and key information
 - If the user asks for specific trace numbers, provide them clearly
 - If patterns emerge in the data, highlight them
+- Consider the conversation context to provide more relevant and contextual responses
+- Reference previous queries when relevant to provide continuity
 
-Transaction Data Context:
+{conversation_context}Transaction Data Context:
 {context}
 
-Answer the user's question based on this transaction data."""
+Answer the user's question based on this transaction data and conversation context."""
 
             user_prompt = f"User's question: {question}\n\nPlease analyze the transaction data and provide a comprehensive answer."
             
             response = openai_client.chat.completions.create(
                 model=os.getenv("SMALL_MODEL_NAME", "gpt-4o-mini"),
                 messages=[
-                    {"role": "system", "content": system_prompt.format(context=context)},
+                    {"role": "system", "content": system_prompt.format(
+                        conversation_context=conversation_context,
+                        context=context
+                    )},
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.1,
@@ -551,10 +624,24 @@ async def query(request: QueryRequest, user: Dict = Depends(require_unc_email)):
 # EDI-specific endpoints
 @app.post("/api/edi/query", response_model=EDIResponse)
 async def query_edi_transactions(query: EDIQuery, user: Dict = Depends(require_unc_email)):
-    """Main endpoint for EDI transaction queries"""
+    """Main endpoint for EDI transaction queries with conversation memory"""
     
     try:
         logger.info(f"EDI query received: {query.question}")
+        
+        # Generate conversation ID if not provided
+        conversation_id = query.conversation_id
+        if not conversation_id:
+            conversation_id = f"edi_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{user.get('email', 'anonymous')}"
+        
+        # Add user message to conversation memory
+        conversation_memory.add_message(
+            conversation_id, 
+            "user", 
+            query.question,
+            {"query_type": "edi_search", "user_email": user.get('email')}
+        )
+        
         # Extract parameters from natural language query
         params = edi_search.extract_query_parameters(query.question)
         logger.info(f"Extracted parameters: {params}")
@@ -576,8 +663,20 @@ async def query_edi_transactions(query: EDIQuery, user: Dict = Depends(require_u
             for t in transactions
         ]
         
-        # Generate RAG response using LLM
-        ai_answer = edi_search.generate_rag_response(query.question, transactions, params)
+        # Generate RAG response using LLM with conversation context
+        ai_answer = edi_search.generate_rag_response(query.question, transactions, params, conversation_id)
+        
+        # Add assistant response to conversation memory
+        conversation_memory.add_message(
+            conversation_id,
+            "assistant", 
+            ai_answer,
+            {
+                "query_type": params["query_type"],
+                "transactions_found": len(transaction_results),
+                "search_performed": True
+            }
+        )
         
         return EDIResponse(
             answer=ai_answer,
@@ -587,8 +686,28 @@ async def query_edi_transactions(query: EDIQuery, user: Dict = Depends(require_u
         )
         
     except Exception as e:
+        logger.error(f"Error processing EDI query: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing EDI query: {str(e)}")
 
+
+
+@app.get("/api/edi/conversation/{conversation_id}")
+async def get_conversation_history(conversation_id: str, user: Dict = Depends(require_unc_email)):
+    """Get conversation history for a specific conversation ID"""
+    
+    try:
+        history = conversation_memory.get_conversation_history(conversation_id)
+        
+        return {
+            "conversation_id": conversation_id,
+            "message_count": len(history),
+            "messages": history,
+            "retrieved_by": user.get('email')
+        }
+        
+    except Exception as e:
+        logger.error(f"Error retrieving conversation history: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving conversation history: {str(e)}")
 
 
 @app.get("/api/edi/stats")
@@ -653,8 +772,12 @@ async def enhanced_chat(request: QueryRequest, user: Dict = Depends(require_unc_
     edi_keywords = ['trace number', 'transaction', '$', 'amount', 'june', 'bcbs', 'payment']
     
     if any(keyword in request.query.lower() for keyword in edi_keywords):
-        # Route to EDI search
-        edi_query = EDIQuery(question=request.query)
+        # Route to EDI search with conversation context
+        edi_query = EDIQuery(
+            question=request.query,
+            conversation_id=request.conversation_id,
+            messages=request.messages
+        )
         edi_response = await query_edi_transactions(edi_query)
 
         return {

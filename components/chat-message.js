@@ -15,14 +15,21 @@ export default function ChatMessage({ message }) {
         isUser ? "justify-end" : "justify-start"
       )}
     >
-      <div
-        className={cn(
-          "rounded-lg px-4 py-2 max-w-[80%]",
-          isUser
-            ? "bg-primary text-primary-foreground"
-            : "bg-card border border-border"
+      <div className="flex items-start gap-3 max-w-[85%]">
+        {!isUser && (
+          <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center flex-shrink-0 mt-1">
+            <span className="text-sm font-bold text-primary-foreground">C</span>
+          </div>
         )}
-      >
+
+        <div
+          className={cn(
+            "rounded-2xl px-4 py-3 flex-1",
+            isUser
+              ? "bg-primary text-primary-foreground ml-auto"
+              : "bg-muted/50 text-foreground"
+          )}
+        >
         {message.isLoading ? (
           <div className="flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -81,6 +88,13 @@ export default function ChatMessage({ message }) {
               </div>
             )}
           </>
+        )}
+        </div>
+
+        {isUser && (
+          <div className="w-8 h-8 bg-secondary rounded-full flex items-center justify-center flex-shrink-0 mt-1">
+            <span className="text-sm font-bold text-secondary-foreground">U</span>
+          </div>
         )}
       </div>
     </div>
