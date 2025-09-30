@@ -43,30 +43,42 @@ async def lifespan(app: FastAPI):
     print("Shutting down ...")
     app.state.project_client.close()
 
-session_threads = {}
-
-# Conversation memory storage for EDI queries
-edi_conversation_memory = {}
-
-class ConversationMemory:
-    """Manages conversation memory for EDI queries"""
+# Unified memory management system
+class UnifiedConversationMemory:
+    """Manages conversation memory for both Azure AI Foundry and EDI queries"""
     
     def __init__(self):
-        self.memories = {}
+        # Azure AI Foundry thread management
+        self.session_threads = {}
+        # EDI conversation memory
+        self.edi_memories = {}
+        # Cross-system conversation tracking
+        self.conversation_registry = {}
     
-    def get_conversation_history(self, conversation_id: str) -> List[Dict]:
-        """Get conversation history for a given conversation ID"""
-        if conversation_id and conversation_id in self.memories:
-            return self.memories[conversation_id]
+    def get_or_create_azure_thread(self, conversation_id: str, project_client):
+        """Get or create Azure AI Foundry thread for a conversation"""
+        if conversation_id not in self.session_threads:
+            thread = project_client.agents.threads.create()
+            self.session_threads[conversation_id] = thread
+            # Register this conversation
+            self._register_conversation(conversation_id, "azure_thread", thread.id)
+        else:
+            thread = project_client.agents.threads.get(self.session_threads[conversation_id].id)
+        return thread
+    
+    def get_edi_conversation_history(self, conversation_id: str) -> List[Dict]:
+        """Get EDI conversation history for a given conversation ID"""
+        if conversation_id and conversation_id in self.edi_memories:
+            return self.edi_memories[conversation_id]
         return []
     
-    def add_message(self, conversation_id: str, role: str, content: str, metadata: Dict = None):
-        """Add a message to conversation history"""
+    def add_edi_message(self, conversation_id: str, role: str, content: str, metadata: Dict = None):
+        """Add a message to EDI conversation history"""
         if not conversation_id:
             return
             
-        if conversation_id not in self.memories:
-            self.memories[conversation_id] = []
+        if conversation_id not in self.edi_memories:
+            self.edi_memories[conversation_id] = []
         
         message = {
             "role": role,
@@ -75,15 +87,45 @@ class ConversationMemory:
             "metadata": metadata or {}
         }
         
-        self.memories[conversation_id].append(message)
+        self.edi_memories[conversation_id].append(message)
         
         # Keep only last 20 messages to prevent memory bloat
-        if len(self.memories[conversation_id]) > 20:
-            self.memories[conversation_id] = self.memories[conversation_id][-20:]
+        if len(self.edi_memories[conversation_id]) > 20:
+            self.edi_memories[conversation_id] = self.edi_memories[conversation_id][-20:]
+        
+        # Register this conversation if not already registered
+        self._register_conversation(conversation_id, "edi_memory", None)
     
-    def get_relevant_context(self, conversation_id: str, current_query: str, max_messages: int = 5) -> str:
-        """Get relevant conversation context for the current query"""
-        history = self.get_conversation_history(conversation_id)
+    def get_unified_context(self, conversation_id: str, current_query: str, max_messages: int = 5) -> str:
+        """Get unified conversation context from both systems"""
+        context_parts = []
+        
+        # Get EDI conversation history
+        edi_history = self.get_edi_conversation_history(conversation_id)
+        if edi_history:
+            recent_edi = edi_history[-max_messages:] if len(edi_history) > max_messages else edi_history
+            for msg in recent_edi:
+                if msg["role"] == "user":
+                    context_parts.append(f"User (EDI): {msg['content']}")
+                elif msg["role"] == "assistant":
+                    context_parts.append(f"Assistant (EDI): {msg['content']}")
+        
+        # Get Azure thread messages if available
+        if conversation_id in self.session_threads:
+            try:
+                # This would require access to project_client, so we'll handle it in the calling function
+                pass
+            except:
+                pass
+        
+        if context_parts:
+            return "Previous conversation context:\n" + "\n".join(context_parts) + "\n\n"
+        
+        return ""
+    
+    def get_edi_relevant_context(self, conversation_id: str, current_query: str, max_messages: int = 5) -> str:
+        """Get relevant context from EDI conversation history"""
+        history = self.get_edi_conversation_history(conversation_id)
         
         if not history:
             return ""
@@ -102,9 +144,49 @@ class ConversationMemory:
             return "Previous conversation context:\n" + "\n".join(context_parts) + "\n\n"
         
         return ""
+    
+    def _register_conversation(self, conversation_id: str, system_type: str, thread_id: str = None):
+        """Register a conversation in the cross-system registry"""
+        if conversation_id not in self.conversation_registry:
+            self.conversation_registry[conversation_id] = {
+                "azure_thread_id": None,
+                "edi_memory_active": False,
+                "created_at": datetime.now().isoformat(),
+                "last_activity": datetime.now().isoformat()
+            }
+        
+        if system_type == "azure_thread":
+            self.conversation_registry[conversation_id]["azure_thread_id"] = thread_id
+        elif system_type == "edi_memory":
+            self.conversation_registry[conversation_id]["edi_memory_active"] = True
+        
+        self.conversation_registry[conversation_id]["last_activity"] = datetime.now().isoformat()
+    
+    def get_conversation_info(self, conversation_id: str) -> Dict:
+        """Get information about a conversation across both systems"""
+        return self.conversation_registry.get(conversation_id, {})
 
-# Initialize conversation memory
-conversation_memory = ConversationMemory()
+# Initialize unified conversation memory
+unified_memory = UnifiedConversationMemory()
+
+# Legacy compatibility - keep the old conversation_memory for existing code
+class ConversationMemory:
+    """Legacy wrapper for backward compatibility"""
+    
+    def __init__(self, unified_memory):
+        self.unified_memory = unified_memory
+    
+    def get_conversation_history(self, conversation_id: str) -> List[Dict]:
+        return self.unified_memory.get_edi_conversation_history(conversation_id)
+    
+    def add_message(self, conversation_id: str, role: str, content: str, metadata: Dict = None):
+        self.unified_memory.add_edi_message(conversation_id, role, content, metadata)
+    
+    def get_relevant_context(self, conversation_id: str, current_query: str, max_messages: int = 5) -> str:
+        return self.unified_memory.get_edi_relevant_context(conversation_id, current_query, max_messages)
+
+# Initialize conversation memory for backward compatibility
+conversation_memory = ConversationMemory(unified_memory)
 
 # Initialize FastAPI app
 app = FastAPI(title="Charlotte",
@@ -419,7 +501,7 @@ Return only valid JSON, no other text."""
         return "\n".join(context_parts)
     
     def generate_rag_response(self, question: str, transactions: List[Dict], params: Dict, conversation_id: str = None) -> str:
-        """Generate RAG response by feeding transaction context to LLM with conversation memory"""
+        """Generate RAG response by feeding transaction context to LLM with unified conversation memory"""
         try:
             # Setup OpenAI client
             openai_client = AzureOpenAI(
@@ -431,10 +513,45 @@ Return only valid JSON, no other text."""
             # Prepare context from transactions
             context = self.prepare_context(transactions)
             
-            # Get conversation context if available
+            # Get unified conversation context if available
             conversation_context = ""
             if conversation_id:
-                conversation_context = conversation_memory.get_relevant_context(conversation_id, question)
+                # Get EDI conversation context
+                edi_context = conversation_memory.get_relevant_context(conversation_id, question)
+                
+                # Get Azure AI Foundry context if available
+                azure_context = ""
+                if conversation_id in unified_memory.session_threads:
+                    try:
+                        # Get recent Azure thread messages for context
+                        project_client = app.state.project_client
+                        thread = unified_memory.session_threads[conversation_id]
+                        messages = project_client.agents.messages.list(thread_id=thread.id, order=ListSortOrder.DESCENDING, top=5)
+                        
+                        azure_context_parts = []
+                        for msg in messages:
+                            if msg.role == "user":
+                                azure_context_parts.append(f"User (General): {msg.content}")
+                            elif msg.role == "assistant":
+                                # Extract text content from assistant messages
+                                if msg.content and isinstance(msg.content, list):
+                                    for part in msg.content:
+                                        if part.get("type") == "text" and "text" in part and "value" in part["text"]:
+                                            azure_context_parts.append(f"Assistant (General): {part['text']['value']}")
+                                            break
+                        
+                        if azure_context_parts:
+                            azure_context = "Previous general conversation:\n" + "\n".join(azure_context_parts) + "\n\n"
+                    except Exception as e:
+                        logger.warning(f"Could not retrieve Azure context: {str(e)}")
+                
+                # Combine contexts
+                if edi_context and azure_context:
+                    conversation_context = f"{azure_context}{edi_context}"
+                elif edi_context:
+                    conversation_context = edi_context
+                elif azure_context:
+                    conversation_context = azure_context
             
             # Handle special cases
             if not transactions:
@@ -445,7 +562,7 @@ Return only valid JSON, no other text."""
                 count = transactions[0]["total_count"]
                 return f"I have **{count:,}** EDI transactions in the database."
             
-            # Create system prompt for RAG response with conversation context
+            # Create system prompt for RAG response with unified conversation context
             system_prompt = """You are a financial transaction assistant with access to EDI transaction data. 
             
 Your task is to analyze the provided transaction data and answer the user's question comprehensively.
@@ -556,69 +673,86 @@ def get_agent(project_client):
 # Protected Routes
 @app.post("/api/query", response_model=QueryResponse)
 async def query(request: QueryRequest, user: Dict = Depends(require_unc_email)):
-    """
-    Query the agent
-    """
-    conversation_id = request.conversation_id
-
+    """Azure AI Foundry agent query endpoint with unified memory management"""
+    
     try:
+        # Extract conversation_id from request
+        conversation_id = request.conversation_id
+        if not conversation_id:
+            # Generate a new conversation ID if not provided
+            user_email = user.get('email', 'anonymous') if user and isinstance(user, dict) else 'anonymous'
+            conversation_id = f"azure_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{user_email}"
+        
+        # Get project client from app state
         project_client = app.state.project_client
-    except Exception:
-        raise HTTPException(status_code=500, detail="Project client not initialized. Check server startup logs and environment variables.")
+        
+        # Get or create Azure agent
+        try:
+            agent = get_agent(project_client)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to get agent: {str(e)}")
+        
+        # Use unified memory to get or create Azure thread
+        thread = unified_memory.get_or_create_azure_thread(conversation_id, project_client)
 
-    try:
-        agent = get_agent(project_client)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get agent: {str(e)}")
-    thread = session_threads.get(conversation_id, None)
+        # Enhance query with EDI context if available
+        enhanced_query = request.query
+        if conversation_id in unified_memory.edi_memories:
+            edi_context = unified_memory.get_edi_relevant_context(conversation_id, request.query, max_messages=3)
+            if edi_context:
+                enhanced_query = f"{edi_context}Current question: {request.query}"
+        
+        # Create user message in Azure thread
+        message = project_client.agents.messages.create(
+            thread_id=thread.id,
+            role="user",
+            content=enhanced_query
+        )
+        
+        # Run the agent
+        run = project_client.agents.runs.create_and_process(
+            thread_id=thread.id,
+            agent_id=agent.id
+        )
 
-    if not thread:
-        thread = project_client.agents.threads.create()
-        session_threads[conversation_id] = thread
-    else:
-        thread = project_client.agents.threads.get(thread.id)
-
-    message = project_client.agents.messages.create(
-        thread_id=thread.id,
-        role="user",
-        content=request.query
-    )
-    run = project_client.agents.runs.create_and_process(
-        thread_id=thread.id,
-        agent_id=agent.id
-    )
-
-    if run.status == "failed":
-        print(f"Run failed: {run.error}")
-        return {
-            "answer": "I'm sorry, I'm having trouble answering your question. Please try again later.",
-            "sources": [],
-            "conversation_id": thread.id
-        }
-    else:
-        messages = project_client.agents.messages.list(thread_id=thread.id, order=ListSortOrder.ASCENDING)
-        assistant_messages = [msg for msg in messages if msg.role == "assistant"]
-        if assistant_messages:
-            latest_message = assistant_messages[-1]
-            # Extract the text value from the message content
-            if latest_message.content and isinstance(latest_message.content, list):
-                text_content = ""
-                for part in latest_message.content:
-                    if part.get("type") == "text" and "text" in part and "value" in part["text"]:
-                        text_content = part["text"]["value"]
-                        break
-                if not text_content:
+        if run.status == "failed":
+            print(f"Run failed: {run.error}")
+            return {
+                "answer": "I'm sorry, I'm having trouble answering your question. Please try again later.",
+                "sources": [],
+                "conversation_id": thread.id
+            }
+        else:
+            # Get the latest assistant message
+            messages = project_client.agents.messages.list(thread_id=thread.id, order=ListSortOrder.ASCENDING)
+            assistant_messages = [msg for msg in messages if msg.role == "assistant"]
+            if assistant_messages:
+                latest_message = assistant_messages[-1]
+                # Extract the text value from the message content
+                if latest_message.content and isinstance(latest_message.content, list):
+                    text_content = ""
+                    for part in latest_message.content:
+                        if part.get("type") == "text" and "text" in part and "value" in part["text"]:
+                            text_content = part["text"]["value"]
+                            break
+                    if not text_content:
+                        text_content = "I'm sorry, I couldn't find a valid response from the assistant."
+                else:
                     text_content = "I'm sorry, I couldn't find a valid response from the assistant."
             else:
-                text_content = "I'm sorry, I couldn't find a valid response from the assistant."
-        else:
-            text_content = "I'm sorry, I'm having trouble answering your question. Please try again later."
+                text_content = "I'm sorry, I'm having trouble answering your question. Please try again later."
 
-        return {
-            "answer": text_content,
-            "sources": [],
-            "conversation_id": thread.id
-        }
+            return {
+                "answer": text_content,
+                "sources": [],
+                "conversation_id": thread.id
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in Azure AI Foundry query: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
 
 
 # EDI-specific endpoints
@@ -632,14 +766,15 @@ async def query_edi_transactions(query: EDIQuery, user: Dict = Depends(require_u
         # Generate conversation ID if not provided
         conversation_id = query.conversation_id
         if not conversation_id:
-            conversation_id = f"edi_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{user.get('email', 'anonymous')}"
+            user_email = user.get('email', 'anonymous') if user and isinstance(user, dict) else 'anonymous'
+            conversation_id = f"edi_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{user_email}"
         
         # Add user message to conversation memory
         conversation_memory.add_message(
             conversation_id, 
             "user", 
             query.question,
-            {"query_type": "edi_search", "user_email": user.get('email')}
+            {"query_type": "edi_search", "user_email": user.get('email') if user and isinstance(user, dict) else None}
         )
         
         # Extract parameters from natural language query
@@ -702,12 +837,53 @@ async def get_conversation_history(conversation_id: str, user: Dict = Depends(re
             "conversation_id": conversation_id,
             "message_count": len(history),
             "messages": history,
-            "retrieved_by": user.get('email')
+            "retrieved_by": user.get('email') if user and isinstance(user, dict) else None
         }
         
     except Exception as e:
         logger.error(f"Error retrieving conversation history: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error retrieving conversation history: {str(e)}")
+
+
+@app.get("/api/conversation/{conversation_id}/unified")
+async def get_unified_conversation_info(conversation_id: str, user: Dict = Depends(require_unc_email)):
+    """Get unified conversation information across both Azure AI Foundry and EDI systems"""
+    
+    try:
+        # Get conversation info from unified memory
+        conversation_info = unified_memory.get_conversation_info(conversation_id)
+        
+        # Get EDI conversation history
+        edi_history = unified_memory.get_edi_conversation_history(conversation_id)
+        
+        # Get Azure thread info if available
+        azure_thread_info = None
+        if conversation_id in unified_memory.session_threads:
+            thread = unified_memory.session_threads[conversation_id]
+            azure_thread_info = {
+                "thread_id": thread.id,
+                "has_thread": True
+            }
+        else:
+            azure_thread_info = {
+                "thread_id": None,
+                "has_thread": False
+            }
+        
+        return {
+            "conversation_id": conversation_id,
+            "conversation_info": conversation_info,
+            "edi_history": {
+                "message_count": len(edi_history),
+                "messages": edi_history
+            },
+            "azure_thread": azure_thread_info,
+            "retrieved_by": user.get('email') if user and isinstance(user, dict) else None
+        }
+        
+    except Exception as e:
+        logger.error(f"Error retrieving unified conversation info: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving unified conversation info: {str(e)}")
 
 
 @app.get("/api/edi/stats")
@@ -766,7 +942,13 @@ async def search_by_amount(amount: float, date: Optional[str] = None):
 # Enhanced query endpoint that handles both EDI queries and general AI chat
 @app.post("/api/chat")
 async def enhanced_chat(request: QueryRequest, user: Dict = Depends(require_unc_email)):
-    """Enhanced chat endpoint that handles both EDI queries and general AI chat"""
+    """Enhanced chat endpoint that handles both EDI queries and general AI chat with unified memory"""
+    
+    # Ensure we have a conversation_id
+    conversation_id = request.conversation_id
+    if not conversation_id:
+        user_email = user.get('email', 'anonymous') if user and isinstance(user, dict) else 'anonymous'
+        conversation_id = f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{user_email}"
     
     # Check if this is an EDI-related query
     edi_keywords = ['trace number', 'transaction', '$', 'amount', 'june', 'bcbs', 'payment']
@@ -775,7 +957,7 @@ async def enhanced_chat(request: QueryRequest, user: Dict = Depends(require_unc_
         # Route to EDI search with conversation context
         edi_query = EDIQuery(
             question=request.query,
-            conversation_id=request.conversation_id,
+            conversation_id=conversation_id,
             messages=request.messages
         )
         edi_response = await query_edi_transactions(edi_query)
@@ -785,10 +967,10 @@ async def enhanced_chat(request: QueryRequest, user: Dict = Depends(require_unc_
             "type": "edi_search",
             "transactions_found": len(edi_response.transactions),
             "data": edi_response.transactions,
-            "conversation_id": request.conversation_id or "edi_search"
+            "conversation_id": conversation_id
         }
     else:
-        # Route to existing AI agent
+        # Route to existing AI agent with unified memory
         ai_response = await query(request)
         print(f"AI response: {ai_response}")
         return {
@@ -866,7 +1048,8 @@ async def upload_edi_report(
             else:
                 raise upload_error
 
-        logger.info(f"File uploaded successfully: {blob_name} by user {user.get('email', 'unknown')}")
+        user_email = user.get('email', 'unknown') if user and isinstance(user, dict) else 'unknown'
+        logger.info(f"File uploaded successfully: {blob_name} by user {user_email}")
 
         return {
             "success": True,
@@ -874,7 +1057,7 @@ async def upload_edi_report(
             "filename": file.filename,
             "blob_name": blob_name,
             "size": len(file_content),
-            "uploaded_by": user.get('email')
+            "uploaded_by": user.get('email') if user and isinstance(user, dict) else None
         }
 
     except HTTPException:
@@ -889,7 +1072,8 @@ async def update_search_index(user: Dict = Depends(require_unc_email)):
     """Update search index with new EDI files incrementally"""
 
     try:
-        logger.info(f"Starting incremental search index update requested by {user.get('email', 'unknown')}")
+        user_email = user.get('email', 'unknown') if user and isinstance(user, dict) else 'unknown'
+        logger.info(f"Starting incremental search index update requested by {user_email}")
 
         # Initialize the incremental updater
         updater = IncrementalIndexUpdater()
@@ -907,7 +1091,7 @@ async def update_search_index(user: Dict = Depends(require_unc_email)):
                     "transactions_added": result.get("transactions_added", 0),
                     "processed_files": result.get("processed_files", [])
                 },
-                "updated_by": user.get('email')
+                "updated_by": user.get('email') if user and isinstance(user, dict) else None
             }
         else:
             logger.error(f"Incremental update failed: {result['message']}")
