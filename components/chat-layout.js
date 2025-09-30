@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { SendIcon, Loader2, Menu } from "lucide-react";
 import ChatMessage from "@/components/chat-message";
 import ChatSidebar from "@/components/chat-sidebar";
+import Header from "@/components/header";
 import { APIClient } from "@/lib/api-client";
 import { useAuth } from "@/components/auth-context-msal";
 
@@ -183,19 +184,23 @@ export default function ChatLayout() {
   };
 
   return (
-    <div className="flex h-screen bg-background">
-      {/* Sidebar */}
-      <ChatSidebar
-        conversations={conversations}
-        currentConversationId={conversationId}
-        onNewChat={handleNewChat}
-        onSelectConversation={handleSelectConversation}
-        onDeleteConversation={handleDeleteConversation}
-        onRenameConversation={handleRenameConversation}
-        isCollapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
-        isMobile={isMobile}
-      />
+    <div className="flex flex-col h-screen bg-background">
+      {/* Header */}
+      <Header />
+
+      <div className="flex flex-1">
+        {/* Sidebar */}
+        <ChatSidebar
+          conversations={conversations}
+          currentConversationId={conversationId}
+          onNewChat={handleNewChat}
+          onSelectConversation={handleSelectConversation}
+          onDeleteConversation={handleDeleteConversation}
+          onRenameConversation={handleRenameConversation}
+          isCollapsed={sidebarCollapsed}
+          onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+          isMobile={isMobile}
+        />
 
       {/* Main Chat Area */}
       <div
@@ -332,6 +337,7 @@ export default function ChatLayout() {
             </div>
           </>
         )}
+        </div>
       </div>
     </div>
   );

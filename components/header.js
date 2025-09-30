@@ -14,9 +14,9 @@ import {
 import { useState } from "react";
 import UploadModal from "@/components/upload-modal";
 
-async function updateSearchIndex() {
-  const sessionId = localStorage.getItem('session_id');
-  if (!sessionId) {
+async function updateSearchIndex(getAuthHeaders) {
+  const authHeaders = await getAuthHeaders();
+  if (!authHeaders || !authHeaders.Authorization) {
     throw new Error('Authentication required');
   }
 
@@ -24,8 +24,8 @@ async function updateSearchIndex() {
   const response = await fetch(`${API_BASE}/api/update-search-index`, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${sessionId}`,
       'Content-Type': 'application/json',
+      ...authHeaders,
     },
   });
 
@@ -38,7 +38,7 @@ async function updateSearchIndex() {
 }
 
 export default function Header() {
-  const { user, logout, isAuthenticated } = useAuth();
+  const { user, logout, isAuthenticated, getAuthHeaders } = useAuth();
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [isUpdatingIndex, setIsUpdatingIndex] = useState(false);
   const [updateStatus, setUpdateStatus] = useState(null);
@@ -48,7 +48,7 @@ export default function Header() {
     setUpdateStatus(null);
 
     try {
-      const result = await updateSearchIndex();
+      const result = await updateSearchIndex(getAuthHeaders);
       setUpdateStatus({
         type: 'success',
         message: result.message,
