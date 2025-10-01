@@ -20,7 +20,7 @@ from azure.search.documents.indexes.models import (
 from azure.core.credentials import AzureKeyCredential
 from azure.core.exceptions import ResourceNotFoundError
 import logging
-from azure_blob_container_client import AzureBlobContainerClient
+from azure.azure_blob_container_client import AzureBlobContainerClient
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

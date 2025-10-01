@@ -11,9 +11,9 @@ from typing import List, Dict, Set, Optional, Tuple
 from dataclasses import dataclass
 from dotenv import load_dotenv
 
-from azure_blob_container_client import AzureBlobContainerClient
+from azure.azure_blob_container_client import AzureBlobContainerClient
 from edi_preprocessor import EDITransactionExtractor
-from azure_search_setup import EDISearchService, setup_azure_search_from_env
+from azure.azure_search_setup import EDISearchService, setup_azure_search_from_env
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

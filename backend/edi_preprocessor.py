@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from io import BytesIO
 
 # Azure Blob support
-from azure_blob_container_client import AzureBlobContainerClient
+from azure.azure_blob_container_client import AzureBlobContainerClient
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
