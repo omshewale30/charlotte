@@ -22,6 +22,59 @@ from edi_search_integration import EDISearchIntegration
 # Load environment variables from .env file
 load_dotenv()
 
+# Initialize Azure OpenAI client for query triaging
+azure_openai_client = AzureOpenAI(
+    api_key=os.getenv("AZURE_OPENAI_KEY"),
+    api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01"),
+    azure_endpoint=os.getenv("AZURE_AI_RESOURCE_ENDPOINT")
+)
+
+async def triage_query(query: str) -> str:
+    """
+    Use AI to determine if a query should be routed to EDI agent or general AI agent.
+    Returns 'edi' or 'general'
+    """
+    try:
+        system_prompt = """You are a query router. Analyze the user's query and determine if it should be routed to:
+        1. 'edi' - for queries about EDI transactions, payments, trace numbers, amounts, dates, specific companies like BCBS, transaction searches
+        2. 'general' - for all other queries (Campus health procedures, code, etc.)
+
+        Examples of EDI queries:
+        - "find all transactions from BCBS of NC in August 2025"
+        - "do you have any August 2025 transactions in the db?"
+        - "Give me all transactions for the amount of 1761.96 in August 2025"
+        - "show me trace number 123456"
+        - "what payments were made in June?"
+
+        Examples of general procedure queries:
+        - "what is charge code for Campus health Pharmacy?"
+        - "Creating CashPro deposits?"
+        - "What is the process for creating a claim in ecW?
+        - "Any questions about posting a check?"
+
+        Respond with only 'edi' or 'general'."""
+
+        response = azure_openai_client.chat.completions.create(
+            model=os.getenv("SMALL_MODEL_NAME", "gpt-4o-mini"),
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": query}
+            ],
+            max_tokens=10,
+            temperature=0.1
+        )
+
+        result = response.choices[0].message.content.strip().lower()
+        return "edi" if result == "edi" else "general"
+
+    except Exception as e:
+        logger.error(f"Error in query triaging: {str(e)}")
+        # Fallback to keyword-based routing if AI fails
+        edi_keywords = ['trace number', 'transaction', '$', 'amount', 'june', 'august', 'bcbs', 'payment', 'edi']
+        if any(keyword in query.lower() for keyword in edi_keywords):
+            return "edi"
+        return "general"
+
 # Azure imports
 from azure.ai.projects import AIProjectClient
 from azure.identity import DefaultAzureCredential
@@ -405,10 +458,10 @@ async def enhanced_chat(request: QueryRequest, user: Dict = Depends(require_unc_
         user_email = user.get('email', 'anonymous') if user and isinstance(user, dict) else 'anonymous'
         conversation_id = f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{user_email}"
     
-    # Check if this is an EDI-related query
-    edi_keywords = ['trace number', 'transaction', '$', 'amount', 'june', 'bcbs', 'payment']
-    
-    if any(keyword in request.query.lower() for keyword in edi_keywords):
+    # Use AI to triage the query to the appropriate agent
+    route_decision = await triage_query(request.query)
+
+    if route_decision == "edi":
         # Route to EDI search with conversation context
         edi_query = EDIQuery(
             question=request.query,
