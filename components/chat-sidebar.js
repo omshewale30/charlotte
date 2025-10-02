@@ -10,11 +10,12 @@ import {
   ChevronRight,
   MoreHorizontal,
   Trash2,
-  Edit3
+  Edit3,
+  Loader2
 } from "lucide-react";
+import { azureCosmosClient } from "@/lib/azure-cosmos-client";
 
 export default function ChatSidebar({
-  conversations = [],
   currentConversationId,
   onNewChat,
   onSelectConversation,
@@ -22,11 +23,123 @@ export default function ChatSidebar({
   onRenameConversation,
   isCollapsed = false,
   onToggleCollapse,
-  isMobile = false
+  isMobile = false,
+  user,
+  getAuthHeaders
 }) {
   const [hoveredConversation, setHoveredConversation] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editingTitle, setEditingTitle] = useState("");
+  const [conversations, setConversations] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (user?.email) {
+      loadUserSessions();
+    }
+  }, [user?.email]);
+
+  // Set up auth headers for the Azure Cosmos client when component mounts
+  useEffect(() => {
+    if (getAuthHeaders) {
+      azureCosmosClient.setAuthHeaders(getAuthHeaders);
+    }
+  }, [getAuthHeaders]);
+
+  const loadUserSessions = async () => {
+    if (!user?.email) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const sessions = await azureCosmosClient.getSessionsForUserId(user.email);
+      setConversations(sessions);
+    } catch (err) {
+      console.error("Error loading sessions:", err);
+      setError("Failed to load chat sessions");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleNewChat = async () => {
+    if (!user?.email) return;
+
+    try {
+      const sessionId = `chat_${Date.now()}`;
+      const userId = user.email;
+      const title = "New Chat";
+
+      const newSession = await azureCosmosClient.createNewSession(sessionId, userId, title);
+
+      // Add to local state
+      setConversations(prev => [newSession, ...prev]);
+
+      // Clear any errors on successful operation
+      setError(null);
+
+      // Call parent callback if provided
+      if (onNewChat) {
+        onNewChat(newSession);
+      }
+
+      // Select the new session
+      if (onSelectConversation) {
+        onSelectConversation(sessionId);
+      }
+    } catch (err) {
+      console.error("Error creating new chat:", err);
+      setError("Failed to create new chat");
+    }
+  };
+
+  const handleDeleteConversation = async (conversationId) => {
+    try {
+      await azureCosmosClient.deleteSession(conversationId);
+
+      // Remove from local state
+      setConversations(prev => prev.filter(conv => conv.id !== conversationId));
+
+      // Clear any errors on successful operation
+      setError(null);
+
+      // Call parent callback if provided
+      if (onDeleteConversation) {
+        onDeleteConversation(conversationId);
+      }
+    } catch (err) {
+      console.error("Error deleting conversation:", err);
+      setError("Failed to delete conversation");
+    }
+  };
+
+  const handleRenameConversation = async (conversationId, newTitle) => {
+    try {
+      await azureCosmosClient.renameSession(conversationId, newTitle);
+
+      // Update local state
+      setConversations(prev =>
+        prev.map(conv =>
+          conv.id === conversationId
+            ? { ...conv, title: newTitle, updatedAt: new Date().toISOString() }
+            : conv
+        )
+      );
+
+      // Clear any errors on successful operation
+      setError(null);
+
+      // Call parent callback if provided
+      if (onRenameConversation) {
+        onRenameConversation(conversationId, newTitle);
+      }
+    } catch (err) {
+      console.error("Error renaming conversation:", err);
+      setError("Failed to rename conversation");
+    }
+  };
 
   const handleRename = (conversation) => {
     setEditingId(conversation.id);
@@ -35,7 +148,7 @@ export default function ChatSidebar({
 
   const handleSaveRename = (conversationId) => {
     if (editingTitle.trim()) {
-      onRenameConversation(conversationId, editingTitle.trim());
+      handleRenameConversation(conversationId, editingTitle.trim());
     }
     setEditingId(null);
     setEditingTitle("");
@@ -90,26 +203,45 @@ export default function ChatSidebar({
         {/* New Chat Button */}
         <div className="p-3 border-b border-gray-700">
           <Button
-            onClick={onNewChat}
+            onClick={handleNewChat}
+            disabled={loading}
             className="w-full justify-start gap-3 bg-gray-800 hover:bg-gray-700 text-white border border-gray-600"
             variant="outline"
           >
-            <MessageSquarePlus className="h-4 w-4" />
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <MessageSquarePlus className="h-4 w-4" />
+            )}
             <span>New chat</span>
           </Button>
         </div>
 
+        {/* Error Message */}
+        {error && (
+          <div className="p-3 text-red-400 text-sm text-center border-b border-gray-700">
+            {error}
+          </div>
+        )}
+
         {/* Conversations List */}
         <div className="flex-1 overflow-y-auto">
           <div className="p-2 space-y-1">
-            {conversations.length === 0 ? (
+            {loading ? (
+              <div className="flex items-center justify-center p-3">
+                <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+                <span className="ml-2 text-gray-400 text-sm">Loading chats...</span>
+              </div>
+            ) : conversations.length === 0 ? (
               <div className="text-gray-400 text-sm p-3 text-center">
                 No conversations yet
               </div>
             ) : (
-              conversations.map((conversation) => (
+              conversations.map((conversation) => {
+                return (
                 <div
                   key={conversation.id}
+                  id={conversation.id}
                   className={cn(
                     "group relative rounded-lg transition-colors cursor-pointer",
                     currentConversationId === conversation.id
@@ -118,7 +250,7 @@ export default function ChatSidebar({
                   )}
                   onMouseEnter={() => setHoveredConversation(conversation.id)}
                   onMouseLeave={() => setHoveredConversation(null)}
-                  onClick={() => onSelectConversation(conversation.id)}
+                  onClick={() => onSelectConversation && onSelectConversation(conversation.id)}
                 >
                   <div className="flex items-center gap-3 p-3 pr-8">
                     <MessageSquare className="h-4 w-4 text-gray-400 flex-shrink-0" />
@@ -166,7 +298,7 @@ export default function ChatSidebar({
                         size="sm"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onDeleteConversation(conversation.id);
+                          handleDeleteConversation(conversation.id);
                         }}
                         className="h-6 w-6 p-0 text-gray-400 hover:text-red-400 hover:bg-gray-600"
                       >
@@ -175,7 +307,8 @@ export default function ChatSidebar({
                     </div>
                   )}
                 </div>
-              ))
+              )
+            })
             )}
           </div>
         </div>

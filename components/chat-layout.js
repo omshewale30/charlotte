@@ -9,14 +9,14 @@ import ChatSidebar from "@/components/chat-sidebar";
 import Header from "@/components/header";
 import { APIClient } from "@/lib/api-client";
 import { useAuth } from "@/components/auth-context-msal";
+import { azureCosmosClient } from "@/lib/azure-cosmos-client";
 
 export default function ChatLayout() {
-  const { getAuthHeaders } = useAuth();
+  const { getAuthHeaders, user } = useAuth();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [conversationId, setConversationId] = useState(null);
-  const [conversations, setConversations] = useState([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [chatStarted, setChatStarted] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -26,6 +26,13 @@ export default function ChatLayout() {
 
   // Create API client instance
   const apiClient = new APIClient(getAuthHeaders);
+
+  // Set up auth headers for Azure Cosmos client
+  useEffect(() => {
+    if (getAuthHeaders) {
+      azureCosmosClient.setAuthHeaders(getAuthHeaders);
+    }
+  }, [getAuthHeaders]);
 
   // Check for mobile on mount and resize
   useEffect(() => {
@@ -63,33 +70,49 @@ export default function ChatLayout() {
     return message.length > 50 ? message.substring(0, 50) + "..." : message;
   };
 
-  const handleNewChat = () => {
+  const handleNewChat = (newSession = null) => {
     setMessages([]);
-    setConversationId(null);
+    setConversationId(newSession?.id || null);
     setChatStarted(false);
     setInput("");
+
+    // Auto-collapse sidebar on mobile after creating new chat
+    if (isMobile) {
+      setSidebarCollapsed(true);
+    }
   };
 
-  const handleSelectConversation = (id) => {
-    // In a real app, you'd fetch the conversation history here
-    // For now, we'll just reset to a new chat
-    handleNewChat();
-    setConversationId(id);
+  const handleSelectConversation = async (id) => {
+    try {
+      // Load conversation from Azure Cosmos DB
+      const session = await azureCosmosClient.getSession(id);
+      if (session) {
+        setConversationId(id);
+        setMessages(session.messages || []);
+        setChatStarted(session.messages && session.messages.length > 0);
+
+        // Auto-collapse sidebar on mobile after selection
+        if (isMobile) {
+          setSidebarCollapsed(true);
+        }
+      }
+    } catch (error) {
+      console.error("Error loading conversation:", error);
+      // Fallback to new chat if loading fails
+      handleNewChat();
+      setConversationId(id);
+    }
   };
 
   const handleDeleteConversation = (id) => {
-    setConversations(prev => prev.filter(conv => conv.id !== id));
     if (conversationId === id) {
       handleNewChat();
     }
   };
 
   const handleRenameConversation = (id, newTitle) => {
-    setConversations(prev =>
-      prev.map(conv =>
-        conv.id === id ? { ...conv, title: newTitle } : conv
-      )
-    );
+    // Sidebar handles the rename, we just need to update title if it's current conversation
+    // This callback is mainly for keeping the UI consistent
   };
 
   const handleSubmit = async (e) => {
@@ -128,17 +151,21 @@ export default function ChatLayout() {
       if (!conversationId && data.conversation_id) {
         const newConversationId = data.conversation_id;
         setConversationId(newConversationId);
-
-        // Add to conversations list
-        const newConversation = {
-          id: newConversationId,
-          title: generateConversationTitle(userMessage),
-          createdAt: new Date(),
-        };
-        setConversations(prev => [newConversation, ...prev]);
       }
 
       // Update assistant message with response
+      const updatedMessages = messages.concat([
+        { role: "user", content: userMessage },
+        {
+          role: "assistant",
+          content: data.response || data.answer,
+          sources: data.sources,
+          transactions: data.data,
+          queryType: data.type,
+          transactionsFound: data.transactions_found,
+        }
+      ]);
+
       setMessages((prev) =>
         prev.map((msg, i) => {
           if (i === prev.length - 1 && msg.isLoading) {
@@ -155,6 +182,22 @@ export default function ChatLayout() {
           return msg;
         })
       );
+
+      // Persist messages to Azure Cosmos DB
+      try {
+        const currentConversationId = conversationId || data.conversation_id;
+        if (currentConversationId && user?.email) {
+          await azureCosmosClient.updateSession(
+            currentConversationId,
+            user.email,
+            updatedMessages,
+            !conversationId ? generateConversationTitle(userMessage) : null
+          );
+        }
+      } catch (dbError) {
+        console.error("Error persisting messages to database:", dbError);
+        // Don't block the UI if database save fails
+      }
     } catch (error) {
       console.error("Error querying API:", error);
 
@@ -191,7 +234,6 @@ export default function ChatLayout() {
       <div className="flex flex-1">
         {/* Sidebar */}
         <ChatSidebar
-          conversations={conversations}
           currentConversationId={conversationId}
           onNewChat={handleNewChat}
           onSelectConversation={handleSelectConversation}
@@ -200,6 +242,8 @@ export default function ChatLayout() {
           isCollapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
           isMobile={isMobile}
+          user={user}
+          getAuthHeaders={getAuthHeaders}
         />
 
       {/* Main Chat Area */}

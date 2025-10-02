@@ -84,10 +84,14 @@ from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
 from conversation_memory import UnifiedConversationMemory
 from conversation_memory import ConversationMemory
+from azure.azure_cosmos_client import AzureCosmosClient
+
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
+# Load environment variables from .env file
+load_dotenv()
 
 # Define request and response models
 class Message(BaseModel):
@@ -152,9 +156,6 @@ async def lifespan(app: FastAPI):
     print("Shutting down Charlotte...")
 
 
-
-
-
 # Initialize FastAPI app
 app = FastAPI(title="Charlotte",
               description="Charlotte is a chatbot that can answer questions about the UNC Charlotte campus and its resources.",
@@ -171,12 +172,10 @@ app.add_middleware(
 )
 
 
-
-
-
 unified_memory = UnifiedConversationMemory()
 conversation_memory = ConversationMemory(unified_memory)
 edi_search = EDISearchIntegration(unified_memory, conversation_memory)
+cosmos_client = AzureCosmosClient()
 
 # Protected Routes
 @app.post("/api/query", response_model=QueryResponse)
@@ -655,6 +654,88 @@ async def get_search_index_status(user: Dict = Depends(require_unc_email)):
             status_code=500,
             detail=f"Failed to get search index status: {str(e)}"
         )
+
+
+# Session management endpoints for Cosmos DB
+@app.get("/api/sessions/{user_id}")
+async def get_user_sessions(user_id: str, user: Dict = Depends(require_unc_email)):
+    """Get all sessions for a specific user"""
+    try:
+        sessions = cosmos_client.get_sessions_for_user_id(user_id)
+        return {
+            "user_id": user_id,
+            "sessions": sessions,
+            "count": len(sessions)
+        }
+    except Exception as e:
+        logger.error(f"Error getting sessions for user {user_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting sessions: {str(e)}")
+
+@app.get("/api/session/{session_id}")
+async def get_session(session_id: str, user: Dict = Depends(require_unc_email)):
+    """Get a specific session with its messages"""
+    try:
+        session = cosmos_client.get_session(session_id)
+        return {
+            "session": session,
+            "message_count": len(session.get('messages', [])),
+            "retrieved_by": user.get('email') if user and isinstance(user, dict) else None
+        }
+    except Exception as e:
+        logger.error(f"Error getting session {session_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting session: {str(e)}")
+
+@app.post("/api/session")
+async def create_session(request: Request, user: Dict = Depends(require_unc_email)):
+    """Create a new session"""
+    try:
+        data = await request.json()
+        session_id = data.get('session_id')
+        user_id = data.get('user_id', user.get('email'))
+        title = data.get('title', 'New Chat')
+        
+        if not session_id:
+            raise HTTPException(status_code=400, detail="session_id is required")
+        
+        session = cosmos_client.create_new_session(session_id, user_id, title)
+        return {
+            "session": session,
+            "message": "Session created successfully"
+        }
+    except Exception as e:
+        logger.error(f"Error creating session: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating session: {str(e)}")
+
+@app.put("/api/session/{session_id}")
+async def update_session(session_id: str, request: Request, user: Dict = Depends(require_unc_email)):
+    """Update a session (add messages, rename, etc.)"""
+    try:
+        data = await request.json()
+        user_id = data.get('user_id', user.get('email'))
+        messages = data.get('messages')
+        title = data.get('title')
+        
+        session = cosmos_client.update_session(session_id, user_id, messages, title)
+        return {
+            "session": session,
+            "message": "Session updated successfully"
+        }
+    except Exception as e:
+        logger.error(f"Error updating session {session_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error updating session: {str(e)}")
+
+@app.delete("/api/session/{session_id}")
+async def delete_session(session_id: str, user: Dict = Depends(require_unc_email)):
+    """Delete a session"""
+    try:
+        cosmos_client.delete_session(session_id)
+        return {
+            "message": "Session deleted successfully",
+            "session_id": session_id
+        }
+    except Exception as e:
+        logger.error(f"Error deleting session {session_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error deleting session: {str(e)}")
 
 
 if __name__ == "__main__":

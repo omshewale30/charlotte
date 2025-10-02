@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@azure/cosmos": "^4.5.1",
     "@azure/msal-browser": "^4.24.0",
     "@azure/msal-react": "^3.0.20",
     "@hookform/resolvers": "^3.9.0",
