@@ -187,11 +187,19 @@ export default function ChatLayout() {
       try {
         const currentConversationId = conversationId || data.conversation_id;
         if (currentConversationId && user?.email) {
+          if (!conversationId) {
+            // Create new session for first message
+            await azureCosmosClient.createNewSession(
+              currentConversationId,
+              user.email,
+              generateConversationTitle(userMessage)
+            );
+          }
+
           await azureCosmosClient.updateSession(
             currentConversationId,
             user.email,
-            updatedMessages,
-            !conversationId ? generateConversationTitle(userMessage) : null
+            updatedMessages
           );
         }
       } catch (dbError) {
