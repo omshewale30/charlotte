@@ -1,3 +1,4 @@
-    - Always ask for approval before making any file changes
-    - Provide explanations for all suggestions
-    - Never modify files without explicit permission
+- This project is a fullstack AI application
+- The frontend is NextJS and backend is FastAPI
+- I am using Azure for all services like EntraID for auth, Azure AI Foundry, Azure Blob storage, Azure Cosmos DB explicit
+- This is an AI tool for internal use by UNC employees 

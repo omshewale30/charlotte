@@ -77,6 +77,7 @@ class EDITransactionExtractor:
             'mutually_defined': r'MUTUALLY DEFINED:\s*(\d+)',
             'originator': r'ORIGINATOR:\s*([A-Za-z0-9\s\-/]+?)(?:\n|$)'
         }
+        
     
     def extract_text_from_pdf(self, pdf_path: Path) -> str:
         """Extract text from PDF file"""

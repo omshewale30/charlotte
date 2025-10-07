@@ -160,3 +160,5 @@ python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 azure-storage-blob==12.26.0
 azure-cosmos
+pandas
+openpyxl
