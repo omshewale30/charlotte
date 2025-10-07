@@ -1,4 +1,4 @@
-"""Utilities to load EDI JSON from Azure/local, convert to DataFrame, analyze, and export to Excel."""
+"""Utilities to load EDI transaction records from Azure AI Search, convert to DataFrame, analyze, and export to Excel."""
 
 import os
 import json
@@ -9,14 +9,18 @@ from typing import List, Dict, Optional
 import pandas as pd
 import openpyxl  
 from azure.azure_blob_container_client import AzureBlobContainerClient
+from azure.azure_search_setup import setup_azure_search_from_env
 
 class EDIDataLoader:
     def __init__(self, start_date: str, end_date: str):
         self.start_date = start_date
         self.end_date = end_date
+        # Initialize Azure AI Search service (preferred data source)
+        self.search_service = setup_azure_search_from_env()
+        # Kept for backward compatibility but unused in search mode
         self.connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
         self.json_container_name = os.getenv("AZURE_JSON_STORAGE_CONTAINER_NAME", "edi-json-structured")
-        self.azure_blob_container_client = AzureBlobContainerClient(self.connection_string, self.json_container_name)
+        self.azure_blob_container_client = None
         
 
 
@@ -33,46 +37,59 @@ class EDIDataLoader:
             return False
 
 
-    def _load_azure_records(self) -> List[Dict]:
-        """Enumerate JSON blobs in container, download, and concatenate records."""
-        if self.azure_blob_container_client is None:
-            return []
+    def _load_search_records(self, start_date: str, end_date: str) -> List[Dict]:
+        """Query Azure AI Search for transactions within [start_date, end_date]."""
+        # effective_date is stored as YYYY-MM-DD string and is filterable; string range works lexicographically
+        filter_expr = f"effective_date ge '{start_date}' and effective_date le '{end_date}'"
+
+        # Page through results using skip/top
+        batch_size = 1000
+        skip = 0
         records: List[Dict] = []
-        for blob in self.azure_blob_container_client.list_blobs():
-            blob_name = getattr(blob, "name", "")
-            if not blob_name.lower().endswith(".json"):
-                continue
-            try:
-                downloader = self.azure_blob_container_client.download_blob(blob_name)
-                data_bytes = downloader.readall()
-                payload = json.loads(data_bytes.decode("utf-8"))
-                if isinstance(payload, list):
-                    records.extend(payload)
-            except Exception:
-                # Skip problematic blobs
-                continue
+
+        # Select only fields needed downstream; include all core fields
+        select_fields = [
+            "trace_number",
+            "amount",
+            "effective_date",
+            "originator",
+            "receiver",
+            "page_number",
+            "routing_id_credit",
+            "routing_id_debit",
+            "company_id_debit",
+            "mutually_defined",
+            "file_name",
+        ]
+
+        while True:
+            results = self.search_service.search_client.search(
+                search_text="",  # filter-only query
+                filter=filter_expr,
+                select=select_fields,
+                top=batch_size,
+                skip=skip,
+            )
+            batch = [dict(r) for r in results]
+            records.extend(batch)
+            if len(batch) < batch_size:
+                break
+            skip += batch_size
+
         return records
 
 
     def load_edi_json(self, start_date: str, end_date: str) -> List[Dict]:
-        """Load EDI JSON records from Azure container and filter by date range.
+        """Load EDI transaction records from Azure AI Search within the date range.
 
-        The filter uses the `effective_date` field in records, expected format YYYY-MM-DD.
-        Fails if Azure is not configured or no Azure JSON records are available.
+        The `effective_date` is expected in YYYY-MM-DD format.
         """
-        start = self._parse_date(start_date)
-        end = self._parse_date(end_date)
+        # Validate date inputs
+        _ = self._parse_date(start_date)
+        _ = self._parse_date(end_date)
 
-        if not self.connection_string:
-            raise RuntimeError("AZURE_STORAGE_CONNECTION_STRING is required for Azure ingestion")
-
-        records = self._load_azure_records()
-        if not records:
-            raise RuntimeError(f"No JSON records found in Azure container '{self.json_container_name}'.")
-
-        # Filter by date
-        filtered = [r for r in records if isinstance(r, dict) and self._within_range(str(r.get("effective_date", "")), start, end)]
-        return filtered
+        records = self._load_search_records(start_date, end_date)
+        return records
 
 
     def to_dataframe(self, records: List[Dict]) -> pd.DataFrame:
@@ -178,7 +195,7 @@ def main():
     parser.add_argument("--out", default=None, help="Optional Excel output path")
     args = parser.parse_args()
 
-    records = EDIDataLoader(args.start, args.end)._load_azure_records()
+    records = EDIDataLoader(args.start, args.end)._load_search_records(args.start, args.end)
     df = EDIDataLoader(args.start, args.end).to_dataframe(records)
     analyses = EDIDataLoader(args.start, args.end).analyze(df)
 
