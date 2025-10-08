@@ -35,17 +35,15 @@ export default function ChatSidebar({
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (user?.email) {
-      loadUserSessions();
-    }
-  }, [user?.email]);
-
-  // Set up auth headers for the Azure Cosmos client when component mounts
-  useEffect(() => {
+    // Ensure auth headers are set before attempting to load sessions
     if (getAuthHeaders) {
       azureCosmosClient.setAuthHeaders(getAuthHeaders);
     }
-  }, [getAuthHeaders]);
+
+    if (user?.email && getAuthHeaders) {
+      loadUserSessions();
+    }
+  }, [user?.email, getAuthHeaders]);
 
   const loadUserSessions = async () => {
     if (!user?.email) return;
