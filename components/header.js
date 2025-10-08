@@ -1,8 +1,22 @@
+/**
+ * need to add a "Dashboard" button to the header
+ * need to create a dashboard page
+ * the dashboard page will be the EDI data visualizations and excel export
+ * 
+ */
+
 'use client';
 
-import { Database, LogOut, User, Upload, RefreshCw } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import UploadModal from "@/components/upload-modal";
+import { Database, LogOut, User, Upload, RefreshCw , ChartArea} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/auth-context-msal";
+
+
+
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,8 +25,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useState } from "react";
-import UploadModal from "@/components/upload-modal";
 
 async function updateSearchIndex(getAuthHeaders) {
   const authHeaders = await getAuthHeaders();
@@ -42,7 +54,7 @@ export default function Header() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [isUpdatingIndex, setIsUpdatingIndex] = useState(false);
   const [updateStatus, setUpdateStatus] = useState(null);
-
+  const router = useRouter();
   const handleUpdateSearchIndex = async () => {
     setIsUpdatingIndex(true);
     setUpdateStatus(null);
@@ -76,7 +88,17 @@ export default function Header() {
           <Database className="h-6 w-6 text-primary" />
           <h1 className="text-xl font-semibold">Charlotte</h1>
         </div>
-        
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => router.push('/dashboard')}
+          className="flex items-center gap-2"
+        >
+          <ChartArea className="h-4 w-4" />
+          <span className="hidden sm:inline">Dashboard</span>
+        </Button>
+
         <div className="flex items-center gap-4">
           {isAuthenticated() && user && (
             <>

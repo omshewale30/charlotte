@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import os
 from typing import List, Optional, Dict
@@ -18,6 +19,7 @@ from azure.azure_blob_container_client import AzureBlobContainerClient
 from incremental_index_updater import IncrementalIndexUpdater
 from azure.azure_client import AzureClient
 from edi_search_integration import EDISearchIntegration
+from json_to_excel import EDIDataLoader
 
 # Load environment variables from .env file
 load_dotenv()
@@ -131,6 +133,11 @@ class EDIResponse(BaseModel):
     transactions: List[TransactionResult]
     query_type: str
     search_performed: bool
+
+
+class EDIAnalysisRequest(BaseModel):
+    start: str  # YYYY-MM-DD
+    end: str    # YYYY-MM-DD
 
 
 @asynccontextmanager
@@ -331,6 +338,61 @@ async def query_edi_transactions(query: EDIQuery, user: Dict = Depends(require_u
         logger.error(f"Error processing EDI query: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing EDI query: {str(e)}")
 
+
+
+@app.post("/api/edi/analyze")
+async def analyze_edi_range(request: EDIAnalysisRequest, user: Dict = Depends(require_unc_email)):
+    """Analyze EDI transactions between start and end dates (YYYY-MM-DD)."""
+    try:
+        loader = EDIDataLoader(request.start, request.end)
+        records = loader.load_edi_json(request.start, request.end)
+        df = loader.to_dataframe(records)
+        analyses = loader.analyze(df)
+
+        # Convert DataFrames to JSON-serializable structures
+        def df_to_records(d):
+            return [] if d is None or getattr(d, 'empty', True) else d.to_dict(orient="records")
+
+        return {
+            "success": True,
+            "range": {"start": request.start, "end": request.end},
+            "row_count": len(df) if df is not None else 0,
+            "analyses": {
+                "summary_totals": df_to_records(analyses.get("summary_totals")),
+                "daily_totals": df_to_records(analyses.get("daily_totals")),
+                "by_originator": df_to_records(analyses.get("by_originator")),
+                "by_receiver": df_to_records(analyses.get("by_receiver")),
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error analyzing EDI range: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error analyzing EDI range: {str(e)}")
+
+
+@app.post("/api/edi/export")
+async def export_edi_range(request: EDIAnalysisRequest, user: Dict = Depends(require_unc_email)):
+    """Export EDI transactions between start and end dates to Excel and stream the file."""
+    try:
+        loader = EDIDataLoader(request.start, request.end)
+        records = loader.load_edi_json(request.start, request.end)
+        df = loader.to_dataframe(records)
+        analyses = loader.analyze(df)
+        excel_path = loader._default_output_path(request.start, request.end)
+        path = loader.export_to_excel(df, analyses, excel_path)
+
+        filename = os.path.basename(path)
+        return FileResponse(
+            path,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename=filename
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error exporting EDI range: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error exporting EDI range: {str(e)}")
 
 
 @app.get("/api/edi/conversation/{conversation_id}")
