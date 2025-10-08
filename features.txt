@@ -1,0 +1,3 @@
+- add file broswer
+    * user can browse the edi reports in the azure blob storage container
+-fix the auth bug, the user is not authenticated as soon as the chat-layout is displayed, the red text is displayed on the sidebar as "Failed to load chat session"
