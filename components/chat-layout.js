@@ -295,10 +295,10 @@ export default function ChatLayout() {
               {/* Example prompts */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {[
-                  "What resources are available for students?",
-                  "How do I access academic support services?",
-                  "Tell me about campus facilities",
-                  "What financial aid options exist?"
+                  "How do I create a claim in ecW?",
+                  "Find the trace number for this transaction?",
+                  "What is the charge code for Campus Health Pharmacy?",
+                  "What should be the accounting date on CashPro deposits?"
                 ].map((prompt, index) => (
                   <Button
                     key={index}
