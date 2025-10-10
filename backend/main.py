@@ -104,6 +104,7 @@ class QueryRequest(BaseModel):
     query: str
     conversation_id: Optional[str] = None
     messages: Optional[List[Message]] = None
+    mode: Optional[str] = None
 
 class Source(BaseModel):
     document_name: str
@@ -119,6 +120,7 @@ class EDIQuery(BaseModel):
     question: str
     conversation_id: Optional[str] = None
     messages: Optional[List[Message]] = None
+
 
 class TransactionResult(BaseModel):
     trace_number: str
@@ -269,8 +271,6 @@ async def query(request: QueryRequest, user: Dict = Depends(require_unc_email)):
         raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
 
 
-# EDI-specific endpoints
-@app.post("/api/edi/query", response_model=EDIResponse)
 async def query_edi_transactions(query: EDIQuery, user: Dict = Depends(require_unc_email)):
     """Main endpoint for EDI transaction queries with conversation memory"""
     
@@ -395,23 +395,23 @@ async def export_edi_range(request: EDIAnalysisRequest, user: Dict = Depends(req
         raise HTTPException(status_code=500, detail=f"Error exporting EDI range: {str(e)}")
 
 
-@app.get("/api/edi/conversation/{conversation_id}")
-async def get_conversation_history(conversation_id: str, user: Dict = Depends(require_unc_email)):
-    """Get conversation history for a specific conversation ID"""
+# # @app.get("/api/edi/conversation/{conversation_id}")
+# async def get_conversation_history(conversation_id: str, user: Dict = Depends(require_unc_email)):
+#     """Get conversation history for a specific conversation ID"""
     
-    try:
-        history = conversation_memory.get_conversation_history(conversation_id)
+#     try:
+#         history = conversation_memory.get_conversation_history(conversation_id)
         
-        return {
-            "conversation_id": conversation_id,
-            "message_count": len(history),
-            "messages": history,
-            "retrieved_by": user.get('email') if user and isinstance(user, dict) else None
-        }
+#         return {
+#             "conversation_id": conversation_id,
+#             "message_count": len(history),
+#             "messages": history,
+#             "retrieved_by": user.get('email') if user and isinstance(user, dict) else None
+#         }
         
-    except Exception as e:
-        logger.error(f"Error retrieving conversation history: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error retrieving conversation history: {str(e)}")
+#     except Exception as e:
+#         logger.error(f"Error retrieving conversation history: {str(e)}")
+#         raise HTTPException(status_code=500, detail=f"Error retrieving conversation history: {str(e)}")
 
 
 @app.get("/api/conversation/{conversation_id}/unified")
@@ -455,57 +455,57 @@ async def get_unified_conversation_info(conversation_id: str, user: Dict = Depen
         raise HTTPException(status_code=500, detail=f"Error retrieving unified conversation info: {str(e)}")
 
 
-@app.get("/api/edi/stats")
-async def get_edi_statistics():
-    """Get statistics about the EDI transaction database"""
+# # @app.get("/api/edi/stats")
+# async def get_edi_statistics():
+#     """Get statistics about the EDI transaction database"""
     
-    if not edi_search.search_client:
-        raise HTTPException(status_code=503, detail="EDI search service not available")
+#     if not edi_search.search_client:
+#         raise HTTPException(status_code=503, detail="EDI search service not available")
     
-    try:
-        # Get total count
-        count_result = edi_search.search_client.search(
-            search_text="*",
-            include_total_count=True,
-            top=0
-        )
+#     try:
+#         # Get total count
+#         count_result = edi_search.search_client.search(
+#             search_text="*",
+#             include_total_count=True,
+#             top=0
+#         )
         
-        total_count = count_result.get_count()
+#         total_count = count_result.get_count()
         
-        return {
-            "total_transactions": total_count,
-            "service_status": "active",
-            "index_name": os.getenv("AZURE_SEARCH_INDEX_NAME", "edi-transactions")
-        }
+#         return {
+#             "total_transactions": total_count,
+#             "service_status": "active",
+#             "index_name": os.getenv("AZURE_SEARCH_INDEX_NAME", "edi-transactions")
+#         }
         
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting statistics: {str(e)}")
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Error getting statistics: {str(e)}")
 
 
-@app.post("/api/edi/search/amount")
-async def search_by_amount(amount: float, date: Optional[str] = None):
-    """Direct search by amount and optional date"""
+# # @app.post("/api/edi/search/amount")
+# async def search_by_amount(amount: float, date: Optional[str] = None):
+#     """Direct search by amount and optional date"""
     
-    if not edi_search.search_client:
-        raise HTTPException(status_code=503, detail="EDI search service not available")
+#     if not edi_search.search_client:
+#         raise HTTPException(status_code=503, detail="EDI search service not available")
     
-    try:
-        if date:
-            filter_expr = f"amount eq {amount} and effective_date eq '{date}'"
-        else:
-            filter_expr = f"amount eq {amount}"
+#     try:
+#         if date:
+#             filter_expr = f"amount eq {amount} and effective_date eq '{date}'"
+#         else:
+#             filter_expr = f"amount eq {amount}"
             
-        results = edi_search.search_client.search(
-            search_text="",
-            filter=filter_expr,
-            select=["trace_number", "amount", "effective_date", "originator", "receiver", "page_number"],
-            top=20
-        )
+#         results = edi_search.search_client.search(
+#             search_text="",
+#             filter=filter_expr,
+#             select=["trace_number", "amount", "effective_date", "originator", "receiver", "page_number"],
+#             top=20
+#         )
         
-        return [dict(result) for result in results]
+#         return [dict(result) for result in results]
         
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error searching by amount: {str(e)}")
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Error searching by amount: {str(e)}")
 
 
 # Enhanced query endpoint that handles both EDI queries and general AI chat
@@ -519,10 +519,10 @@ async def enhanced_chat(request: QueryRequest, user: Dict = Depends(require_unc_
         user_email = user.get('email', 'anonymous') if user and isinstance(user, dict) else 'anonymous'
         conversation_id = f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{user_email}"
     
-    # Use AI to triage the query to the appropriate agent
-    route_decision = await triage_query(request.query)
+    # # Use AI to triage the query to the appropriate agent
+    # route_decision = await triage_query(request.query)
 
-    if route_decision == "edi":
+    if request.mode == "EDI":
         # Route to EDI search with conversation context
         edi_query = EDIQuery(
             question=request.query,
@@ -541,7 +541,6 @@ async def enhanced_chat(request: QueryRequest, user: Dict = Depends(require_unc_
     else:
         # Route to existing AI agent with unified memory
         ai_response = await query(request)
-        print(f"AI response: {ai_response}")
         return {
             "response": ai_response["answer"],
             "type": "general_ai",
@@ -550,22 +549,22 @@ async def enhanced_chat(request: QueryRequest, user: Dict = Depends(require_unc_
         }
 
 
-@app.post("/api/edi-preprocess")
-async def edi_preprocess(request: Request):
-    """Connect to Azure Blob Storage, then run the edi_preprocessor.py script to preprocess the EDI transactions in the blob storage"""
+# # @app.post("/api/edi-preprocess")
+# async def edi_preprocess(request: Request):
+#     """Connect to Azure Blob Storage, then run the edi_preprocessor.py script to preprocess the EDI transactions in the blob storage"""
 
-    # Connect to Azure Blob Storage
-    blob_service_client = AzureBlobContainerClient(os.getenv("AZURE_STORAGE_CONNECTION_STRING"), os.getenv("AZURE_STORAGE_CONTAINER_NAME"))
-    container_client = blob_service_client.get_container_client(os.getenv("AZURE_STORAGE_CONTAINER_NAME"))
+#     # Connect to Azure Blob Storage
+#     blob_service_client = AzureBlobContainerClient(os.getenv("AZURE_STORAGE_CONNECTION_STRING"), os.getenv("AZURE_STORAGE_CONTAINER_NAME"))
+#     container_client = blob_service_client.get_container_client(os.getenv("AZURE_STORAGE_CONTAINER_NAME"))
 
-    # Run the edi_preprocessor.py script to preprocess the EDI transactions in the blob storage
-    edi_preprocessor = EDIProcessor()
-    edi_preprocessor.preprocess_edi_transactions()
+#     # Run the edi_preprocessor.py script to preprocess the EDI transactions in the blob storage
+#     edi_preprocessor = EDIProcessor()
+#     edi_preprocessor.preprocess_edi_transactions()
 
 
-    return {
-        "message": "EDI transactions preprocessed"
-    }
+#     return {
+#         "message": "EDI transactions preprocessed"
+#     }
 
 
 @app.post("/api/upload-edi-report")
@@ -677,45 +676,45 @@ async def update_search_index(user: Dict = Depends(require_unc_email)):
         )
 
 
-@app.get("/api/search-index-status")
-async def get_search_index_status(user: Dict = Depends(require_unc_email)):
-    """Get current search index status and information about new files"""
+# # @app.get("/api/search-index-status")
+# async def get_search_index_status(user: Dict = Depends(require_unc_email)):
+#     """Get current search index status and information about new files"""
 
-    try:
-        updater = IncrementalIndexUpdater()
+#     try:
+#         updater = IncrementalIndexUpdater()
 
-        # Find new files without processing them
-        new_files, registry = updater.find_new_and_updated_files()
+#         # Find new files without processing them
+#         new_files, registry = updater.find_new_and_updated_files()
 
-        # Get search index statistics
-        search_service = updater.get_search_service()
-        search_stats = search_service.get_statistics()
+#         # Get search index statistics
+#         search_service = updater.get_search_service()
+#         search_stats = search_service.get_statistics()
 
-        return {
-            "success": True,
-            "search_index": {
-                "total_transactions": search_stats.get("total_transactions", 0),
-                "earliest_date": search_stats.get("earliest_date"),
-                "latest_date": search_stats.get("latest_date"),
-                "index_name": search_stats.get("index_name")
-            },
-            "pending_updates": {
-                "new_files_count": len(new_files),
-                "new_files": new_files[:10] if new_files else [],  # Show first 10 files
-                "has_more": len(new_files) > 10
-            },
-            "last_registry_info": {
-                "total_processed_files": len(registry),
-                "last_update": max([info.processed_at for info in registry.values()]) if registry else None
-            }
-        }
+#         return {
+#             "success": True,
+#             "search_index": {
+#                 "total_transactions": search_stats.get("total_transactions", 0),
+#                 "earliest_date": search_stats.get("earliest_date"),
+#                 "latest_date": search_stats.get("latest_date"),
+#                 "index_name": search_stats.get("index_name")
+#             },
+#             "pending_updates": {
+#                 "new_files_count": len(new_files),
+#                 "new_files": new_files[:10] if new_files else [],  # Show first 10 files
+#                 "has_more": len(new_files) > 10
+#             },
+#             "last_registry_info": {
+#                 "total_processed_files": len(registry),
+#                 "last_update": max([info.processed_at for info in registry.values()]) if registry else None
+#             }
+#         }
 
-    except Exception as e:
-        logger.error(f"Error getting search index status: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get search index status: {str(e)}"
-        )
+#     except Exception as e:
+#         logger.error(f"Error getting search index status: {str(e)}")
+#         raise HTTPException(
+#             status_code=500,
+#             detail=f"Failed to get search index status: {str(e)}"
+#         )
 
 
 # Session management endpoints for Cosmos DB

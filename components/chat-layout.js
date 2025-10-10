@@ -10,6 +10,8 @@ import Header from "@/components/header";
 import { APIClient } from "@/lib/api-client";
 import { useAuth } from "@/components/auth-context-msal";
 import { azureCosmosClient } from "@/lib/azure-cosmos-client";
+import Toggle from "@/components/ui/toggle";
+
 
 export default function ChatLayout() {
   const { getAuthHeaders, user } = useAuth();
@@ -20,6 +22,7 @@ export default function ChatLayout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [chatStarted, setChatStarted] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [mode, setMode] = useState("EDI");
 
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
@@ -141,6 +144,7 @@ export default function ChatLayout() {
       const data = await apiClient.sendChatQuery({
         query: userMessage,
         conversation_id: conversationId,
+        mode: mode,
         messages: messages.map(msg => ({
           role: msg.role,
           content: msg.content
@@ -314,7 +318,12 @@ export default function ChatLayout() {
 
             {/* Input area - centered */}
             <div className="w-full max-w-3xl mt-8">
-              <form onSubmit={handleSubmit} className="relative">
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {/* Toggle switch */}
+                <div className="flex justify-center">
+                  <Toggle mode={mode} setMode={setMode} />
+                </div>
+                
                 <div className="relative">
                   <textarea
                     ref={textareaRef}
@@ -326,7 +335,7 @@ export default function ChatLayout() {
                     disabled={isSubmitting}
                     rows={1}
                   />
-                  <Button
+                  <Button 
                     type="submit"
                     size="sm"
                     disabled={isSubmitting || !input.trim()}
@@ -359,7 +368,12 @@ export default function ChatLayout() {
             {/* Input area - fixed at bottom */}
             <div className="border-t border-border bg-background/95 backdrop-blur-sm">
               <div className="max-w-3xl mx-auto px-4 py-4">
-                <form onSubmit={handleSubmit} className="relative">
+                <form onSubmit={handleSubmit} className="space-y-4">
+                  {/* Toggle switch */}
+                  <div className="flex justify-center">
+                    <Toggle mode={mode} setMode={setMode} />
+                  </div>
+                  
                   <div className="relative">
                     <textarea
                       ref={textareaRef}
