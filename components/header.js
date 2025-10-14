@@ -13,6 +13,8 @@ import UploadModal from "@/components/upload-modal";
 import { Database, LogOut, User, Upload, RefreshCw , ChartArea} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/auth-context-msal";
+import { FileText } from "lucide-react";
+
 
 
 
@@ -83,45 +85,64 @@ export default function Header() {
 
   return (
     <header className="border-b border-border bg-card">
-      <div className="container mx-auto px-4 py-4 flex items-center justify-between max-w-4xl">
-        <div className="flex items-center gap-2">
-          <Database className="h-6 w-6 text-primary" />
-          <h1 className="text-xl font-semibold">Charlotte</h1>
+      <div className="container mx-auto px-6 py-6 flex items-center justify-between max-w-6xl">
+        {/* Logo Section */}
+        <div className="flex items-center gap-3">
+          <Database className="h-7 w-7 text-primary" />
+          <h1 className="text-2xl font-bold">Charlotte</h1>
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => router.push('/dashboard')}
-          className="flex items-center gap-2"
-        >
-          <ChartArea className="h-4 w-4" />
-          <span className="hidden sm:inline">Dashboard</span>
-        </Button>
+        {/* Navigation Section */}
+        <nav className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            size="default"
+            onClick={() => router.push('/dashboard')}
+            className="flex items-center gap-2 px-4 py-2"
+          >
+            <ChartArea className="h-4 w-4" />
+            <span className="hidden sm:inline">Dashboard</span>
+          </Button>
 
-        <div className="flex items-center gap-4">
+          <Button
+            variant="outline"
+            size="default"
+            onClick={() => router.push('/edi-viewer')}
+            className="flex items-center gap-2 px-4 py-2"
+          >
+            <FileText className="h-4 w-4" />
+            <span className="hidden sm:inline">EDI Viewer</span>
+          </Button>
+        </nav>
+
+        {/* Actions Section */}
+        <div className="flex items-center gap-3">
           {isAuthenticated() && user && (
             <>
               <Button
                 variant="outline"
-                size="sm"
+                size="default"
                 onClick={() => setShowUploadModal(true)}
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 px-4 py-2"
               >
                 <Upload className="h-4 w-4" />
-                <span className="hidden sm:inline">Upload EDI Report</span>
+                <span className="hidden md:inline">Upload EDI Report</span>
+                <span className="md:hidden">Upload</span>
               </Button>
 
               <Button
                 variant="outline"
-                size="sm"
+                size="default"
                 onClick={handleUpdateSearchIndex}
                 disabled={isUpdatingIndex}
-                className="flex items-center gap-2 relative"
+                className="flex items-center gap-2 px-4 py-2 relative"
               >
                 <RefreshCw className={`h-4 w-4 ${isUpdatingIndex ? 'animate-spin' : ''}`} />
-                <span className="hidden sm:inline">
+                <span className="hidden md:inline">
                   {isUpdatingIndex ? 'Updating...' : 'Update Search Index'}
+                </span>
+                <span className="md:hidden">
+                  {isUpdatingIndex ? 'Updating...' : 'Update'}
                 </span>
               </Button>
             </>
@@ -130,7 +151,7 @@ export default function Header() {
           {isAuthenticated() && user && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="flex items-center gap-2">
+                <Button variant="ghost" size="default" className="flex items-center gap-2 px-4 py-2">
                   <User className="h-4 w-4" />
                   <span className="hidden sm:inline">{user.given_name || user.name}</span>
                 </Button>
@@ -163,12 +184,12 @@ export default function Header() {
 
       {/* Status notification */}
       {updateStatus && (
-        <div className={`w-full px-4 py-3 text-sm ${
+        <div className={`w-full px-6 py-4 text-sm ${
           updateStatus.type === 'success'
             ? 'bg-green-50 text-green-800 border-b border-green-200'
             : 'bg-red-50 text-red-800 border-b border-red-200'
         }`}>
-          <div className="container mx-auto max-w-4xl">
+          <div className="container mx-auto max-w-6xl">
             <div className="flex items-center justify-between">
               <div>
                 <strong>{updateStatus.type === 'success' ? '✅ Success:' : '❌ Error:'}</strong> {updateStatus.message}
@@ -180,7 +201,7 @@ export default function Header() {
               </div>
               <button
                 onClick={() => setUpdateStatus(null)}
-                className="text-xs opacity-60 hover:opacity-100"
+                className="text-sm opacity-60 hover:opacity-100 px-2 py-1 rounded hover:bg-black/5"
               >
                 ✕
               </button>

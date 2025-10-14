@@ -43,6 +43,16 @@ class AzureBlobContainerClient:
         if container_name and container_name != self.container_name:
             return self.blob_service_client.get_container_client(container_name)
         return self.container_client
+    
+    def get_blob_properties(self, blob_name: str):
+        """Get properties of a specific blob"""
+        blob_client = self.container_client.get_blob_client(blob_name)
+        return blob_client.get_blob_properties()
+    
+    def get_blob_url(self, blob_name: str):
+        """Get the URL for a specific blob"""
+        blob_client = self.container_client.get_blob_client(blob_name)
+        return blob_client.url
 
 
 def main():

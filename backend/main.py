@@ -799,6 +799,99 @@ async def delete_session(session_id: str, user: Dict = Depends(require_unc_email
         raise HTTPException(status_code=500, detail=f"Error deleting session: {str(e)}")
 
 
+@app.get("/api/edi/reports")
+async def get_edi_reports(user: Dict = Depends(require_unc_email)):
+    """Get list of EDI reports from Azure Blob Storage"""
+    try:
+        # Initialize Azure Blob client for edi-reports container
+        connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+        container_name = "edi-reports"
+
+        if not connection_string:
+            raise HTTPException(status_code=500, detail="Azure Storage configuration not found")
+
+        blob_client = AzureBlobContainerClient(connection_string, container_name)
+        
+        # List all blobs in the container
+        blobs = blob_client.list_blobs()
+        
+        reports = []
+        for blob in blobs:
+            # Extract metadata from filename if it follows the pattern
+            # EDI Remittance Advice Report_2063_20250819_chs.pdf
+            filename = blob.name
+            blob_props = blob_client.get_blob_properties(filename)
+            
+            # Parse filename to extract date and other info
+            import re
+            date_match = re.search(r'(\d{8})', filename)  # Extract YYYYMMDD
+            amount_match = re.search(r'(\d+\.\d{2})', filename)  # Extract amount if present
+            
+            parsed_date = None
+            if date_match:
+                date_str = date_match.group(1)
+                try:
+                    parsed_date = datetime.strptime(date_str, '%Y%m%d').strftime('%Y-%m-%d')
+                except ValueError:
+                    parsed_date = None
+            
+            reports.append({
+                "filename": filename,
+                "url": blob_client.get_blob_url(filename),
+                "size": blob_props.size,
+                "last_modified": blob_props.last_modified.isoformat() if blob_props.last_modified else None,
+                "parsed_date": parsed_date,
+                "content_type": blob_props.content_settings.content_type if blob_props.content_settings else "application/pdf"
+            })
+        
+        # Sort by last modified date (newest first)
+        reports.sort(key=lambda x: x["last_modified"] or "", reverse=True)
+        
+        return {
+            "success": True,
+            "reports": reports,
+            "total_count": len(reports),
+            "retrieved_by": user.get('email') if user and isinstance(user, dict) else None
+        }
+        
+    except Exception as e:
+        logger.error(f"Error retrieving EDI reports: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve EDI reports: {str(e)}")
+
+
+@app.get("/api/edi/reports/{filename}")
+async def get_edi_report(filename: str, user: Dict = Depends(require_unc_email)):
+    """Get a specific EDI report file from Azure Blob Storage"""
+    try:
+        # Initialize Azure Blob client for edi-reports container
+        connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+        container_name = "edi-reports"
+
+        if not connection_string:
+            raise HTTPException(status_code=500, detail="Azure Storage configuration not found")
+
+        blob_client = AzureBlobContainerClient(connection_string, container_name)
+        
+        # Get blob content
+        blob_content = blob_client.download_blob(filename)
+        
+        # Get blob properties for content type
+        blob_props = blob_client.get_blob_properties(filename)
+        content_type = blob_props.content_settings.content_type if blob_props.content_settings else "application/pdf"
+        
+        # Return file response
+        from fastapi.responses import Response
+        return Response(
+            content=blob_content.readall(),
+            media_type=content_type,
+            headers={"Content-Disposition": f"inline; filename={filename}"}
+        )
+        
+    except Exception as e:
+        logger.error(f"Error retrieving EDI report {filename}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve EDI report: {str(e)}")
+
+
 if __name__ == "__main__":
 
     uvicorn.run(
