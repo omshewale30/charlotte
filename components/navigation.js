@@ -64,11 +64,11 @@ export default function Navigation() {
               </Button>
             ) : (
               <Button 
-                onClick={() => window.location.href = '/chat'}
+                onClick={() => window.location.href = '/dashboard'}
                 className="btn-primary"
                 size="sm"
               >
-                Go to Chat
+                Go to Dashboard
               </Button>
             )}
           </div>
@@ -126,11 +126,11 @@ export default function Navigation() {
                   </Button>
                 ) : (
                   <Button 
-                    onClick={() => window.location.href = '/chat'}
+                    onClick={() => window.location.href = '/dashboard'}
                     className="btn-primary w-full"
                     size="sm"
                   >
-                    Go to Chat
+                    Go to Dashboard
                   </Button>
                 )}
               </div>

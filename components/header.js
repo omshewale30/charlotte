@@ -1,8 +1,12 @@
 /**
- * need to add a "Dashboard" button to the header
- * need to create a dashboard page
- * the dashboard page will be the EDI data visualizations and excel export
- * 
+ * Header component for the application
+ * Contains navigation elements, user profile dropdown, and action buttons
+ * Handles authentication state and provides access to key features like:
+ *  - File upload
+ *  - Data analysis
+ *  - Search index updates
+ *  - User profile/logout
+ * Used across all pages to maintain consistent navigation and functionality
  */
 
 'use client';
@@ -97,11 +101,11 @@ export default function Header() {
           <Button
             variant="outline"
             size="default"
-            onClick={() => router.push('/dashboard')}
+            onClick={() => router.push('/data-analysis')}
             className="flex items-center gap-2 px-4 py-2"
           >
             <ChartArea className="h-4 w-4" />
-            <span className="hidden sm:inline">Dashboard</span>
+            <span className="hidden sm:inline">Data Analysis</span>
           </Button>
 
           <Button

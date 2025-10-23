@@ -14,7 +14,7 @@ export default function Home() {
   // Redirect to chat if already authenticated
   useEffect(() => {
     if (isAuthenticated()) {
-      router.push('/chat');
+      router.push('/dashboard');
     }
   }, [isAuthenticated, router]);
 

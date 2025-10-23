@@ -17,7 +17,7 @@ export default function AuthCallback() {
         // Check if we have authenticated accounts
         if (accounts && accounts.length > 0) {
           // Authentication successful, redirect to chat
-          router.push('/chat');
+          router.push('/dashboard');
         } else {
           // No accounts means authentication failed or in progress
           setTimeout(() => {

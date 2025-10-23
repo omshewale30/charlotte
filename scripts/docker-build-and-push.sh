@@ -169,7 +169,7 @@ ensure_buildx() {
         docker buildx use charlotte-multi > /dev/null
     fi
     print_status "Using docker buildx builder: charlotte-multi"
-}
+} 
 
 # Function to build and push frontend image
 build_and_push_frontend() {
