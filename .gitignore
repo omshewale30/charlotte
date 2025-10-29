@@ -46,3 +46,5 @@ backend/processed_data/
 backend/myenv/
 backend/venv/
 azure-rg-template/
+backend/reports/
+backend/remittance_summary.json
