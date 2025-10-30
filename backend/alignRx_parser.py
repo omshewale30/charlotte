@@ -2,7 +2,7 @@
 This script is used to parse alignRx excel files and extract the data into a structured format and save it to a database.
 
 '''
-
+import uuid
 import os
 import glob
 import json
@@ -10,6 +10,7 @@ import re
 import pandas as pd
 import sys
 from azure.azure_blob_container_client import AzureBlobContainerClient
+import datetime
 
 class AlignRxParser:
     def __init__(self):
@@ -45,7 +46,7 @@ class AlignRxParser:
             "processing_fee": None,
             "payment_amount": None
         }
-        
+        report_data['id'] = str(uuid.uuid4())
         # We use a state machine to move through the document sections
         # SCANNING -> FIND_CENTRAL_PAY -> PARSE_CENTRAL_PAY -> FIND_TOTAL -> DONE
         state = 'SCANNING'
@@ -72,7 +73,16 @@ class AlignRxParser:
                 if "Pay Date:" in row_str and ("CAMPUS HEALTH PHARMACY" in row_str or "STUDENT STORES PHARMACY" in row_str):
                     for cell in row_cells:
                         if cell.startswith("Pay Date:"):
-                            report_data['date'] = cell.replace("Pay Date:", "").strip()
+                            try:
+                                raw_date_str = cell.replace("Pay Date:", "").strip()
+                                # Parse the date from "MM/DD/YYYY" format
+                                date_obj = datetime.datetime.strptime(raw_date_str, '%m/%d/%Y').date()
+                                # Format it to "YYYY-MM-DD" string
+                                report_data['date'] = date_obj.isoformat()
+                            except Exception as e:
+                                print(f"Warning: Could not parse date {raw_date_str}. Error: {e}")
+                                report_data['date'] = None
+
                         if "CAMPUS HEALTH PHARMACY" in cell:
                             report_data['destination'] = "CAMPUS HEALTH PHARMACY"
                         elif "STUDENT STORES PHARMACY" in cell:

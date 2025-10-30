@@ -13,6 +13,7 @@ from azure.core.credentials import AzureKeyCredential
 from conversation_memory import ConversationMemory
 from conversation_memory import UnifiedConversationMemory
 from fastapi import FastAPI
+from azure.azure_search_setup import EDISearchService, setup_azure_search_from_env
 
 import json
 

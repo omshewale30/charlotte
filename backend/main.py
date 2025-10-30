@@ -19,7 +19,7 @@ from azure.azure_blob_container_client import AzureBlobContainerClient
 from incremental_index_updater import IncrementalIndexUpdater
 from azure.azure_client import AzureClient
 from edi_search_integration import EDISearchIntegration
-from json_to_excel import EDIDataLoader
+from edi_json_to_excel import EDIDataLoader
 
 # Load environment variables from .env file
 load_dotenv()
@@ -31,51 +31,6 @@ azure_openai_client = AzureOpenAI(
     azure_endpoint=os.getenv("AZURE_AI_RESOURCE_ENDPOINT")
 )
 
-async def triage_query(query: str) -> str:
-    """
-    Use AI to determine if a query should be routed to EDI agent or general AI agent.
-    Returns 'edi' or 'general'
-    """
-    try:
-        system_prompt = """You are a query router. Analyze the user's query and determine if it should be routed to:
-        1. 'edi' - for queries about EDI transactions, payments, trace numbers, amounts, dates, specific companies like BCBS, transaction searches
-        2. 'general' - for all other queries (Campus health procedures, code, etc.)
-
-        Examples of EDI queries:
-        - "find all transactions from BCBS of NC in August 2025"
-        - "do you have any August 2025 transactions in the db?"
-        - "Give me all transactions for the amount of 1761.96 in August 2025"
-        - "show me trace number 123456"
-        - "what payments were made in June?"
-
-        Examples of general procedure queries:
-        - "what is charge code for Campus health Pharmacy?"
-        - "Creating CashPro deposits?"
-        - "What is the process for creating a claim in ecW?
-        - "Any questions about posting a check?"
-
-        Respond with only 'edi' or 'general'."""
-
-        response = azure_openai_client.chat.completions.create(
-            model=os.getenv("SMALL_MODEL_NAME", "gpt-4o-mini"),
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": query}
-            ],
-            max_tokens=10,
-            temperature=0.1
-        )
-
-        result = response.choices[0].message.content.strip().lower()
-        return "edi" if result == "edi" else "general"
-
-    except Exception as e:
-        logger.error(f"Error in query triaging: {str(e)}")
-        # Fallback to keyword-based routing if AI fails
-        edi_keywords = ['trace number', 'transaction', '$', 'amount', 'june', 'august', 'bcbs', 'payment', 'edi']
-        if any(keyword in query.lower() for keyword in edi_keywords):
-            return "edi"
-        return "general"
 
 # Azure imports
 from azure.ai.projects import AIProjectClient
@@ -87,7 +42,7 @@ from azure.core.credentials import AzureKeyCredential
 from conversation_memory import UnifiedConversationMemory
 from conversation_memory import ConversationMemory
 from azure.azure_cosmos_client import AzureCosmosClient
-
+from align_rx_json_to_excel import AlignRxDataLoader
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -371,6 +326,60 @@ async def analyze_edi_range(request: EDIAnalysisRequest, user: Dict = Depends(re
         raise HTTPException(status_code=500, detail=f"Error analyzing EDI range: {str(e)}")
 
 
+
+@app.post("/api/alignrx/analyze")
+async def analyze_alignrx_range(request: EDIAnalysisRequest, user: Dict = Depends(require_unc_email)):
+    """Analyze AlignRx reports between start and end dates (YYYY-MM-DD)."""
+    try:
+        loader = AlignRxDataLoader(request.start, request.end)
+        records = loader._load_search_records(request.start, request.end)
+        df = loader.to_dataframe(records)
+        analyses = loader.analyze(df)
+        # Convert DataFrames to JSON-serializable structures
+        def df_to_records(d):
+            return [] if d is None or getattr(d, 'empty', True) else d.to_dict(orient="records")
+
+        return {
+            "success": True,
+            "range": {"start": request.start, "end": request.end},
+            "row_count": len(df) if df is not None else 0,
+            "analyses": {
+                "summary_totals": df_to_records(analyses.get("summary_totals")),
+                "daily_totals": df_to_records(analyses.get("daily_totals")),
+                "by_destination": df_to_records(analyses.get("by_destination")),
+                "by_sender": df_to_records(analyses.get("by_sender")),
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error analyzing AlignRx range: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error analyzing AlignRx range: {str(e)}") 
+
+
+@app.post("/api/alignrx/export")
+async def export_alignrx_range(request: EDIAnalysisRequest, user: Dict = Depends(require_unc_email)):
+    """Export AlignRx reports between start and end dates to Excel and stream the file."""
+    try:
+        loader = AlignRxDataLoader(request.start, request.end)
+        records = loader._load_search_records(request.start, request.end)
+        df = loader.to_dataframe(records)
+        analyses = loader.analyze(df)
+        excel_path = loader._default_output_path(request.start, request.end)
+        path = loader.export_to_excel(df, analyses, excel_path)
+
+        filename = os.path.basename(path)
+        return FileResponse(
+            path,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename=filename
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error exporting AlignRx range: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error exporting AlignRx range: {str(e)}")
+
 @app.post("/api/edi/export")
 async def export_edi_range(request: EDIAnalysisRequest, user: Dict = Depends(require_unc_email)):
     """Export EDI transactions between start and end dates to Excel and stream the file."""
@@ -393,25 +402,6 @@ async def export_edi_range(request: EDIAnalysisRequest, user: Dict = Depends(req
     except Exception as e:
         logger.error(f"Error exporting EDI range: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error exporting EDI range: {str(e)}")
-
-
-# # @app.get("/api/edi/conversation/{conversation_id}")
-# async def get_conversation_history(conversation_id: str, user: Dict = Depends(require_unc_email)):
-#     """Get conversation history for a specific conversation ID"""
-    
-#     try:
-#         history = conversation_memory.get_conversation_history(conversation_id)
-        
-#         return {
-#             "conversation_id": conversation_id,
-#             "message_count": len(history),
-#             "messages": history,
-#             "retrieved_by": user.get('email') if user and isinstance(user, dict) else None
-#         }
-        
-#     except Exception as e:
-#         logger.error(f"Error retrieving conversation history: {str(e)}")
-#         raise HTTPException(status_code=500, detail=f"Error retrieving conversation history: {str(e)}")
 
 
 @app.get("/api/conversation/{conversation_id}/unified")
@@ -455,57 +445,6 @@ async def get_unified_conversation_info(conversation_id: str, user: Dict = Depen
         raise HTTPException(status_code=500, detail=f"Error retrieving unified conversation info: {str(e)}")
 
 
-# # @app.get("/api/edi/stats")
-# async def get_edi_statistics():
-#     """Get statistics about the EDI transaction database"""
-    
-#     if not edi_search.search_client:
-#         raise HTTPException(status_code=503, detail="EDI search service not available")
-    
-#     try:
-#         # Get total count
-#         count_result = edi_search.search_client.search(
-#             search_text="*",
-#             include_total_count=True,
-#             top=0
-#         )
-        
-#         total_count = count_result.get_count()
-        
-#         return {
-#             "total_transactions": total_count,
-#             "service_status": "active",
-#             "index_name": os.getenv("AZURE_SEARCH_INDEX_NAME", "edi-transactions")
-#         }
-        
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Error getting statistics: {str(e)}")
-
-
-# # @app.post("/api/edi/search/amount")
-# async def search_by_amount(amount: float, date: Optional[str] = None):
-#     """Direct search by amount and optional date"""
-    
-#     if not edi_search.search_client:
-#         raise HTTPException(status_code=503, detail="EDI search service not available")
-    
-#     try:
-#         if date:
-#             filter_expr = f"amount eq {amount} and effective_date eq '{date}'"
-#         else:
-#             filter_expr = f"amount eq {amount}"
-            
-#         results = edi_search.search_client.search(
-#             search_text="",
-#             filter=filter_expr,
-#             select=["trace_number", "amount", "effective_date", "originator", "receiver", "page_number"],
-#             top=20
-#         )
-        
-#         return [dict(result) for result in results]
-        
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Error searching by amount: {str(e)}")
 
 
 # Enhanced query endpoint that handles both EDI queries and general AI chat
@@ -519,8 +458,7 @@ async def enhanced_chat(request: QueryRequest, user: Dict = Depends(require_unc_
         user_email = user.get('email', 'anonymous') if user and isinstance(user, dict) else 'anonymous'
         conversation_id = f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{user_email}"
     
-    # # Use AI to triage the query to the appropriate agent
-    # route_decision = await triage_query(request.query)
+
 
     if request.mode == "EDI":
         # Route to EDI search with conversation context
@@ -548,23 +486,6 @@ async def enhanced_chat(request: QueryRequest, user: Dict = Depends(require_unc_
             "conversation_id": ai_response["conversation_id"]
         }
 
-
-# # @app.post("/api/edi-preprocess")
-# async def edi_preprocess(request: Request):
-#     """Connect to Azure Blob Storage, then run the edi_preprocessor.py script to preprocess the EDI transactions in the blob storage"""
-
-#     # Connect to Azure Blob Storage
-#     blob_service_client = AzureBlobContainerClient(os.getenv("AZURE_STORAGE_CONNECTION_STRING"), os.getenv("AZURE_STORAGE_CONTAINER_NAME"))
-#     container_client = blob_service_client.get_container_client(os.getenv("AZURE_STORAGE_CONTAINER_NAME"))
-
-#     # Run the edi_preprocessor.py script to preprocess the EDI transactions in the blob storage
-#     edi_preprocessor = EDIProcessor()
-#     edi_preprocessor.preprocess_edi_transactions()
-
-
-#     return {
-#         "message": "EDI transactions preprocessed"
-#     }
 
 
 @app.post("/api/upload-edi-report")
@@ -676,45 +597,6 @@ async def update_search_index(user: Dict = Depends(require_unc_email)):
         )
 
 
-# # @app.get("/api/search-index-status")
-# async def get_search_index_status(user: Dict = Depends(require_unc_email)):
-#     """Get current search index status and information about new files"""
-
-#     try:
-#         updater = IncrementalIndexUpdater()
-
-#         # Find new files without processing them
-#         new_files, registry = updater.find_new_and_updated_files()
-
-#         # Get search index statistics
-#         search_service = updater.get_search_service()
-#         search_stats = search_service.get_statistics()
-
-#         return {
-#             "success": True,
-#             "search_index": {
-#                 "total_transactions": search_stats.get("total_transactions", 0),
-#                 "earliest_date": search_stats.get("earliest_date"),
-#                 "latest_date": search_stats.get("latest_date"),
-#                 "index_name": search_stats.get("index_name")
-#             },
-#             "pending_updates": {
-#                 "new_files_count": len(new_files),
-#                 "new_files": new_files[:10] if new_files else [],  # Show first 10 files
-#                 "has_more": len(new_files) > 10
-#             },
-#             "last_registry_info": {
-#                 "total_processed_files": len(registry),
-#                 "last_update": max([info.processed_at for info in registry.values()]) if registry else None
-#             }
-#         }
-
-#     except Exception as e:
-#         logger.error(f"Error getting search index status: {str(e)}")
-#         raise HTTPException(
-#             status_code=500,
-#             detail=f"Failed to get search index status: {str(e)}"
-#         )
 
 
 # Session management endpoints for Cosmos DB
@@ -890,6 +772,8 @@ async def get_edi_report(filename: str, user: Dict = Depends(require_unc_email))
     except Exception as e:
         logger.error(f"Error retrieving EDI report {filename}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to retrieve EDI report: {str(e)}")
+
+
 
 
 if __name__ == "__main__":

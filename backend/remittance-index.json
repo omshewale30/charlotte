@@ -1,0 +1,96 @@
+{
+    "name": "alignrx-reports",
+    "fields": [
+      {
+        "name": "report_id",
+        "type": "Edm.String",
+        "key": true,
+        "retrievable": true,
+        "filterable": true,
+        "sortable": true,
+        "searchable": false,
+        "facetable": false
+      },
+      {
+        "name": "source_file",
+        "type": "Edm.String",
+        "retrievable": true,
+        "filterable": true,
+        "sortable": true,
+        "searchable": true,
+        "analyzer": "standard.lucene"
+      },
+      {
+        "name": "pay_date",
+        "type": "Edm.DateTimeOffset",
+        "retrievable": true,
+        "filterable": true,
+        "sortable": true,
+        "facetable": true
+      },
+      {
+        "name": "destination",
+        "type": "Edm.String",
+        "retrievable": true,
+        "filterable": true,
+        "sortable": true,
+        "facetable": true,
+        "searchable": true,
+        "analyzer": "standard.lucene"
+      },
+      {
+        "name": "processing_fee",
+        "type": "Edm.Double",
+        "retrievable": true,
+        "filterable": true,
+        "sortable": true,
+        "facetable": false
+      },
+      {
+        "name": "payment_amount",
+        "type": "Edm.Double",
+        "retrievable": true,
+        "filterable": true,
+        "sortable": true,
+        "facetable": false
+      },
+      {
+        "name": "central_payments",
+        "type": "Collection(Edm.ComplexType)",
+        "fields": [
+          {
+            "name": "sender",
+            "type": "Edm.String",
+            "retrievable": true,
+            "searchable": true,
+            "filterable": true,
+            "facetable": true,
+            "analyzer": "standard.lucene"
+          },
+          {
+            "name": "check_num",
+            "type": "Edm.String",
+            "retrievable": true,
+            "searchable": true,
+            "filterable": true,
+            "analyzer": "standard.lucene"
+          },
+          {
+            "name": "amount",
+            "type": "Edm.Double",
+            "retrievable": true,
+            "filterable": true,
+            "sortable": false,
+            "facetable": false
+          }
+        ]
+      }
+    ],
+    "suggesters": [],
+    "scoringProfiles": [],
+    "analyzers": [],
+    "tokenizers": [],
+    "tokenFilters": [],
+    "charFilters": []
+  }
+  
