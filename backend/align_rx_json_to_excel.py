@@ -14,7 +14,8 @@ class AlignRxDataLoader:
         self.start_date = start_date
         self.end_date = end_date
         # Initialize Azure AI Search service (preferred data source)
-        self.search_service = AlignRxSearchService(endpoint=os.getenv("AZURE_SEARCH_ENDPOINT"), api_key=os.getenv("AZURE_SEARCH_API_KEY"), index_name=os.getenv("AZURE_ALIGN_RX_SEARCH_INDEX_NAME", "alignrx-reports"))
+    
+        self.search_service = AlignRxSearchService()
         # No blob fallback for AlignRx flow
         
 
@@ -33,9 +34,14 @@ class AlignRxDataLoader:
 
 
     def _load_search_records(self, start_date: str, end_date: str) -> List[Dict]:
-        """Query Azure AI Search for alignRx reports within [start_date, end_date]."""
-        # effective_date is stored as YYYY-MM-DD string and is filterable; string range works lexicographically
-        filter_expr = f"pay_date ge '{start_date}' and pay_date le '{end_date}'"
+        """Query Azure AI Search for alignRx reports within [start_date, end_date].
+
+        pay_date is stored as Edm.DateTimeOffset; filter must use ISO 8601 with timezone.
+        """
+        # Build DateTimeOffset range for entire days
+        start_dt = f"{start_date}T00:00:00Z"
+        end_dt = f"{end_date}T23:59:59Z"
+        filter_expr = f"pay_date ge {start_dt} and pay_date le {end_dt}"
 
         # Page through results using skip/top
         batch_size = 1000
@@ -54,7 +60,7 @@ class AlignRxDataLoader:
         ]
 
         while True:
-            results = self.search_service.search_client.search(
+            results = self.search_service.search_client.search( # type: ignore
                 search_text="",  # filter-only query
                 filter=filter_expr,
                 select=select_fields,
@@ -196,10 +202,54 @@ class AlignRxDataLoader:
         output_path = Path(excel_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Build an expanded view of central payments where each sender/check becomes its own row
+        expanded_rows: List[Dict] = []
+        if df is not None and not df.empty and "central_payments" in df.columns:
+            for _, rec in df.iterrows():
+                payments = rec.get("central_payments") or []
+                if isinstance(payments, list) and payments:
+                    for p in payments:
+                        if not isinstance(p, dict):
+                            continue
+                        expanded_rows.append({
+                            "report_id": rec.get("report_id"),
+                            "pay_date": rec.get("pay_date"),
+                            "destination": rec.get("destination"),
+                            "payment_amount": rec.get("payment_amount"),
+                            "sender": p.get("sender"),
+                            "check_num": p.get("check_num"),
+                            "amount": p.get("amount"),
+                            "source_file": rec.get("source_file"),
+                        })
+        expanded_df = pd.DataFrame(expanded_rows)
+
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-            (df if not df.empty else pd.DataFrame()).to_excel(writer, index=False, sheet_name="raw")
+            # Report-level data (one row per report) - only Destination, Pay Date, Payment Amount
+            if df is not None and not df.empty:
+                selected_cols = []
+                rename_map: Dict[str, str] = {}
+                if "destination" in df.columns:
+                    selected_cols.append("destination")
+                    rename_map["destination"] = "Destination"
+                if "pay_date" in df.columns:
+                    selected_cols.append("pay_date")
+                    rename_map["pay_date"] = "Pay Date"
+                if "payment_amount" in df.columns:
+                    selected_cols.append("payment_amount")
+                    rename_map["payment_amount"] = "Payment Amount"
+
+                reports_df = df[selected_cols].rename(columns=rename_map) if selected_cols else pd.DataFrame()
+            else:
+                reports_df = pd.DataFrame()
+
+            reports_df.to_excel(writer, index=False, sheet_name="reports")
+
+            # Expanded central payments (one row per sender/check per report)
+            (expanded_df if not expanded_df.empty else pd.DataFrame()).to_excel(writer, index=False, sheet_name="central_payments")
+
+            # Analysis sheets
             for name, adf in analyses.items():
-                (adf if not adf.empty else pd.DataFrame()).to_excel(writer, index=False, sheet_name=name[:31])
+                (adf if adf is not None and not adf.empty else pd.DataFrame()).to_excel(writer, index=False, sheet_name=name[:31])
         return str(output_path)
 
 

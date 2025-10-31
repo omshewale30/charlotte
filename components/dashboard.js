@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import UploadModal from '@/components/upload-modal';
+import AlignRxUploadModal from '@/components/align-rx-upload-modal';
+
 import { 
   MessageSquare, 
   BarChart3, 
@@ -14,13 +16,15 @@ import {
   TrendingUp, 
   FileCheck, 
   Calendar,
-  Database
+  Database,
+  FileSpreadsheet,
+  ChartArea
 } from 'lucide-react';
 
 export default function Dashboard() {
   const router = useRouter();
   const [showUploadModal, setShowUploadModal] = useState(false);
-
+  const [showAlignRxUploadModal, setShowAlignRxUploadModal] = useState(false);
   // Placeholder data - will be wired up later
   const dashboardData = {
     totalAmount: '$2,847,392.50',
@@ -61,6 +65,22 @@ export default function Dashboard() {
       onClick: () => setShowUploadModal(true),
       color: 'bg-orange-500 hover:bg-orange-600',
       iconColor: 'text-orange-100'
+    },
+    {
+      title: 'Upload AlignRx Report',
+      description: 'Upload new AlignRx report files',
+      icon: FileSpreadsheet,
+      onClick: () => setShowAlignRxUploadModal(true),
+      color: 'bg-red-500 hover:bg-red-600',
+      iconColor: 'text-red-100'
+    },
+    {
+      title: 'AlignRx Data Analysis',
+      description: 'Analyze AlignRx data and generate insights',
+      icon: ChartArea,
+      onClick: () => router.push('/align-rx-analysis'),
+      color: 'bg-green-500 hover:bg-green-600',
+      iconColor: 'text-green-100'
     }
   ];
 
@@ -232,6 +252,10 @@ export default function Dashboard() {
         <UploadModal
           isOpen={showUploadModal}
           onClose={() => setShowUploadModal(false)}
+        />
+        <AlignRxUploadModal
+          isOpen={showAlignRxUploadModal}
+          onClose={() => setShowAlignRxUploadModal(false)}
         />
       </div>
     </div>

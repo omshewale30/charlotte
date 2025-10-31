@@ -20,6 +20,8 @@ from incremental_index_updater import IncrementalIndexUpdater
 from azure.azure_client import AzureClient
 from edi_search_integration import EDISearchIntegration
 from edi_json_to_excel import EDIDataLoader
+from align_rx_json_to_excel import AlignRxDataLoader
+from alignRx_parser import AlignRxParser
 
 # Load environment variables from .env file
 load_dotenv()
@@ -43,6 +45,7 @@ from conversation_memory import UnifiedConversationMemory
 from conversation_memory import ConversationMemory
 from azure.azure_cosmos_client import AzureCosmosClient
 from align_rx_json_to_excel import AlignRxDataLoader
+from azure.azure_alignRx_search_setup import AlignRxSearchService
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -486,7 +489,145 @@ async def enhanced_chat(request: QueryRequest, user: Dict = Depends(require_unc_
             "conversation_id": ai_response["conversation_id"]
         }
 
+@app.post("/api/alignrx/upload-report")
+async def upload_alignrx_report(
+    file: UploadFile = File(...),
+    user: Dict = Depends(require_unc_email)
+):
+    """Upload AlignRx Excel report, parse it, and index parsed data into Azure AI Search."""
 
+    try:
+        # Validate file type (AlignRx reports are Excel)
+        allowed_extensions = {'.xlsx', '.xls'}
+        file_extension = os.path.splitext(file.filename)[1].lower()
+
+        if file_extension not in allowed_extensions:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File type {file_extension} not allowed. Allowed types: {', '.join(sorted(allowed_extensions))}"
+            )
+
+        # Read file content
+        file_content = await file.read()
+
+        if len(file_content) == 0:
+            raise HTTPException(status_code=400, detail="File is empty")
+
+        # Initialize Azure Blob client for alignrx-reports container
+        connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+        container_name = "alignrx-reports"
+
+        if not connection_string:
+            raise HTTPException(status_code=500, detail="Azure Storage configuration not found")
+
+        blob_client = AzureBlobContainerClient(connection_string, container_name)
+
+        # Use original filename so Azure duplicate detection can work
+        blob_name = file.filename
+
+        # Upload the raw file to Blob Storage (no overwrite)
+        try:
+            blob_client.upload_blob(blob_name, file_content, overwrite=False)
+            duplicate = False
+        except Exception as upload_error:
+            if "BlobAlreadyExists" in str(upload_error) or "already exists" in str(upload_error).lower():
+                # Robust duplicate handling: do NOT parse or index duplicates
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"File '{file.filename}' already exists in the container"
+                )
+            else:
+                raise upload_error
+
+        # Persist to a temporary file for parser consumption
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as tmp:
+            tmp.write(file_content)
+            temp_path = tmp.name
+
+        parsed_record = None
+        parse_error = None
+        try:
+            parser = AlignRxParser()
+            parsed_record = parser.parse_excel_report(temp_path)
+        except Exception as e:
+            parse_error = str(e)
+        finally:
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+
+        if not parsed_record:
+            # Roll back blob upload only if we created a new blob and parsing failed
+            if not duplicate:
+                try:
+                    blob_client.delete_blob(blob_name)
+                except Exception:
+                    pass
+            raise HTTPException(status_code=422, detail=f"Failed to parse AlignRx report{': ' + parse_error if parse_error else ''}")
+
+        # Enrich parsed record with storage metadata
+        try:
+            blob_url = blob_client.get_blob_url(blob_name)
+        except Exception:
+            blob_url = None
+        
+        
+
+        # Ensure the indexed source_file reflects the actual uploaded blob, not a temp path used for parsing
+        parsed_record["source_file"] = blob_name
+        parsed_record["blob_name"] = blob_name
+        if blob_url:
+            parsed_record["blob_url"] = blob_url
+        parsed_record["uploaded_at"] = datetime.utcnow().isoformat() + "Z"
+        if user and isinstance(user, dict):
+            parsed_record["uploaded_by"] = user.get("email")
+        
+    
+
+        # Prepare and upload parsed document to Azure AI Search (AlignRx index)
+        index_success = False
+        try:
+            # Normalize fields to match index schema
+            index_doc = {
+                "report_id": parsed_record.get("report_id") or parsed_record.get("id"),
+                "source_file": parsed_record.get("source_file") or blob_name,
+                "pay_date": parsed_record.get("pay_date") or parsed_record.get("date"),
+                "destination": parsed_record.get("destination"),
+                "processing_fee": parsed_record.get("processing_fee"),
+                "payment_amount": parsed_record.get("payment_amount"),
+                "central_payments": parsed_record.get("central_payments") or [],
+            }
+
+            # Remove keys with None to avoid schema mismatches
+            index_doc = {k: v for k, v in index_doc.items() if v is not None}
+
+            alignrx_search = AlignRxSearchService()
+            index_success = alignrx_search.upload_documents([index_doc])
+        except Exception as e:
+            logger.error(f"Error uploading parsed AlignRx document to search index: {str(e)}")
+            # Do not fail the entire request if indexing fails; report partial success
+
+        user_email = user.get('email', 'unknown') if user and isinstance(user, dict) else 'unknown'
+        logger.info(f"AlignRx report processed: {blob_name} by user {user_email}; indexed={index_success}")
+
+        return {
+            "success": True,
+            "message": "AlignRx report uploaded and processed",
+            "duplicate": duplicate,
+            "filename": file.filename,
+            "blob_name": blob_name,
+            "blob_url": blob_url,
+            "parsed": parsed_record,
+            "indexed": index_success
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading AlignRx report: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to upload AlignRx report: {str(e)}")
 
 @app.post("/api/upload-edi-report")
 async def upload_edi_report(

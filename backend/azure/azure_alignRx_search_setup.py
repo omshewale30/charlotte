@@ -13,11 +13,17 @@ import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+load_dotenv()
 
 class AlignRxSearchService:
     """Service to manage alignRx reports in Azure AI Search"""
     
-    def __init__(self, endpoint: str, api_key: str, index_name: str = "alignrx-reports"):
+    def __init__(self):
+        """Initialize the AlignRxSearchService"""
+        endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
+        api_key = os.getenv("AZURE_SEARCH_API_KEY")
+        index_name = os.getenv("AZURE_ALIGN_RX_SEARCH_INDEX_NAME", "alignrx-reports")
+
         self.endpoint = endpoint
         self.api_key = api_key
         self.index_name = index_name
@@ -107,27 +113,27 @@ class AlignRxSearchService:
             logger.error(f"Error getting statistics: {e}")
             return {}
 
-def setup_azure_search_from_env():
-    """Initialize search service from environment variables.
+    # def setup_azure_alignRx_search_from_env(self):
+    #     """Initialize search service from environment variables.
 
-    Loads variables from `backend/.env` so the script works regardless of the
-    current working directory.
-    """
-    # Resolve the backend .env path relative to this file
-    backend_dir = os.path.dirname(os.path.abspath(__file__))
-    env_path = os.path.join(backend_dir, ".env")
+    #     Loads variables from `backend/.env` so the script works regardless of the
+    #     current working directory.
+    #     """
+    #     # Resolve the backend .env path relative to this file
+    #     backend_dir = os.path.dirname(os.path.abspath(__file__))
+    #     env_path = os.path.join(backend_dir, ".env")
 
-    # Load environment variables from backend/.env if it exists
-    load_dotenv(dotenv_path=env_path)
+    #     # Load environment variables from backend/.env if it exists
+    #     load_dotenv(dotenv_path=env_path)
 
-    # Also load any process-level env vars (without overriding existing)
-    load_dotenv(override=False)
+    #     # Also load any process-level env vars (without overriding existing)
+    #     load_dotenv(override=False)
 
-    endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
-    api_key = os.getenv("AZURE_SEARCH_API_KEY")
-    index_name = os.getenv("AZURE_ALIGN_RX_SEARCH_INDEX_NAME", "alignrx-reports")
+    #     endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
+    #     api_key = os.getenv("AZURE_SEARCH_API_KEY")
+    #     index_name = os.getenv("AZURE_ALIGN_RX_SEARCH_INDEX_NAME", "alignrx-reports")
 
-    if not endpoint or not api_key:
-        raise ValueError("Please set AZURE_SEARCH_ENDPOINT and AZURE_SEARCH_API_KEY in backend/.env or environment")
+    #     if not endpoint or not api_key:
+    #         raise ValueError("Please set AZURE_SEARCH_ENDPOINT and AZURE_SEARCH_API_KEY in backend/.env or environment")
 
-    return AlignRxSearchService(endpoint, api_key, index_name=index_name)
+    #     return AlignRxSearchService(endpoint, api_key, index_name=index_name)

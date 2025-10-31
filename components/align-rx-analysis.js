@@ -10,7 +10,7 @@
 import { useState, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { SendIcon, Loader2, Menu, RefreshCw } from "lucide-react";
+import { SendIcon, Loader2, Menu } from "lucide-react";
 import { APIClient } from "@/lib/api-client";
 import { useAuth } from "@/components/auth-context-msal";
 import { azureCosmosClient } from "@/lib/azure-cosmos-client";
@@ -30,7 +30,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 
-export default function DataAnalysis() {
+export default function AlignRxAnalysis() {
     const { getAuthHeaders } = useAuth();
     const apiClient = new APIClient(getAuthHeaders);
 
@@ -39,8 +39,7 @@ export default function DataAnalysis() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [result, setResult] = useState(null);
-    const [updateStatus, setUpdateStatus] = useState(null);
-    const [isUpdatingIndex, setIsUpdatingIndex] = useState(false);
+
     const formatCurrency = (value) => {
         if (value === null || value === undefined || isNaN(Number(value))) return "-";
         return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(Number(value));
@@ -59,7 +58,7 @@ export default function DataAnalysis() {
         setLoading(true);
         setError(null);
         try {
-            const data = await apiClient.analyzeEdiRange({ start: startDate, end: endDate });
+            const data = await apiClient.analyzeAlignRxRange({ start: startDate, end: endDate });
             setResult(data);
         } catch (e) {
             setError(e.message || "Failed to load analysis");
@@ -67,32 +66,6 @@ export default function DataAnalysis() {
             setLoading(false);
         }
     };
-    const handleUpdateSearchIndex = async () => {
-        setIsUpdatingIndex(true);
-        setUpdateStatus(null);
-    
-        try {
-          const result = await updateSearchIndex(getAuthHeaders);
-          setUpdateStatus({
-            type: 'success',
-            message: result.message,
-            details: result.details
-          });
-        } catch (error) {
-          setUpdateStatus({
-            type: 'error',
-            message: error.message || 'Failed to update search index'
-          });
-        } finally {
-          setIsUpdatingIndex(false);
-    
-          // Clear status after 5 seconds
-          setTimeout(() => {
-            setUpdateStatus(null);
-          }, 5000);
-        }
-      };
-    
 
     const handleDownload = async () => {
         if (!startDate || !endDate) {
@@ -101,11 +74,11 @@ export default function DataAnalysis() {
         }
         setError(null);
         try {
-            const blob = await apiClient.downloadEdiExcel({ start: startDate, end: endDate });
+            const blob = await apiClient.downloadAlignRxExcel({ start: startDate, end: endDate });
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `edi_export_${startDate}_to_${endDate}.xlsx`;
+            a.download = `alignrx_export_${startDate}_to_${endDate}.xlsx`;
             document.body.appendChild(a);
             a.click();
             a.remove();
@@ -117,51 +90,7 @@ export default function DataAnalysis() {
 
     return (
         <div className="max-w-5xl mx-auto p-6 space-y-6">
-            <h1 className="text-2xl font-semibold">Data Analysis</h1>
-        
-                    <Button
-                        variant="outline"
-                        size="default"
-                        onClick={handleUpdateSearchIndex}
-                        disabled={isUpdatingIndex}
-                        className="flex items-center gap-2 px-4 py-2 relative"
-                    >
-                        <RefreshCw className={`h-4 w-4 ${isUpdatingIndex ? 'animate-spin' : ''}`} />
-                        <span>
-                            {isUpdatingIndex ? 'Updating...' : 'Update Search Index'}
-                        </span>
-                    </Button>
-
-                    {/* Status notification */}
-                    {updateStatus && (
-                        <div
-                            className={`w-full px-6 py-4 text-sm ${
-                                updateStatus.type === 'success'
-                                    ? 'bg-green-50 text-green-800 border-b border-green-200'
-                                    : 'bg-red-50 text-red-800 border-b border-red-200'
-                            }`}
-                        >
-                            <div className="container mx-auto max-w-6xl">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <strong>{updateStatus.type === 'success' ? '✅ Success:' : '❌ Error:'}</strong> {updateStatus.message}
-                                        {updateStatus.details && (
-                                            <div className="text-xs mt-1 opacity-75">
-                                                {updateStatus.details.new_files_processed} files processed, {updateStatus.details.transactions_added} transactions added
-                                            </div>
-                                        )}
-                                    </div>
-                                    <button
-                                        onClick={() => setUpdateStatus(null)}
-                                        className="text-sm opacity-60 hover:opacity-100 px-2 py-1 rounded hover:bg-black/5"
-                                    >
-                                        ✕
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
+            <h1 className="text-2xl font-semibold">AlignRx Analysis</h1>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                 <div className="flex flex-col gap-2">
@@ -198,21 +127,25 @@ export default function DataAnalysis() {
 
             {result && (
                 <div className="space-y-6">
-                                    {(() => {
+                    {(() => {
                         const summary = (result.analyses?.summary_totals || [])[0] || {};
                         return (
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                                 <div className="border rounded-md p-4">
                                     <div className="text-sm text-muted-foreground">Rows</div>
                                     <div className="text-xl font-medium">{formatNumber(result.row_count)}</div>
                                 </div>
                                 <div className="border rounded-md p-4">
-                                    <div className="text-sm text-muted-foreground">Total Amount</div>
-                                    <div className="text-xl font-medium">{formatCurrency(summary.sum_amount)}</div>
+                                    <div className="text-sm text-muted-foreground">Total Payment</div>
+                                    <div className="text-xl font-medium">{formatCurrency(summary.sum_payment_amount)}</div>
                                 </div>
                                 <div className="border rounded-md p-4">
-                                    <div className="text-sm text-muted-foreground">Average Amount</div>
-                                    <div className="text-xl font-medium">{formatCurrency(summary.avg_amount)}</div>
+                                    <div className="text-sm text-muted-foreground">Avg Payment</div>
+                                    <div className="text-xl font-medium">{formatCurrency(summary.avg_payment_amount)}</div>
+                                </div>
+                                <div className="border rounded-md p-4">
+                                    <div className="text-sm text-muted-foreground">Total Processing Fee</div>
+                                    <div className="text-xl font-medium">{formatCurrency(summary.sum_processing_fee)}</div>
                                 </div>
                                 <div className="border rounded-md p-4">
                                     <div className="text-sm text-muted-foreground">Date Range</div>
@@ -225,9 +158,9 @@ export default function DataAnalysis() {
                     {(() => {
                         const daily = (result.analyses?.daily_totals || [])
                             .slice()
-                            .sort((a, b) => (a.effective_date || "").localeCompare(b.effective_date || ""));
-                        const byOriginatorRaw = (result.analyses?.by_originator || []);
-                        const byReceiverRaw = (result.analyses?.by_receiver || []);
+                            .sort((a, b) => (a.pay_date || "").localeCompare(b.pay_date || ""));
+                        const byDestinationRaw = (result.analyses?.by_destination || []);
+                        const bySenderRaw = (result.analyses?.by_sender || []);
 
                         // Aggregate long tails into an "Other" slice to reduce label clutter
                         const topWithOther = (arr, nameKey) => {
@@ -241,8 +174,8 @@ export default function DataAnalysis() {
                                 : top;
                         };
 
-                        const byOriginator = topWithOther(byOriginatorRaw, "originator");
-                        const byReceiver = topWithOther(byReceiverRaw, "receiver");
+                        const byDestination = topWithOther(byDestinationRaw.map(r => ({ ...r, sum_amount: r.sum_payment_amount })), "destination");
+                        const bySender = topWithOther(bySenderRaw, "sender");
 
                         const CAROLINA = "#4B9CD3";
                         const CAROLINA_DARK = "#2B6FA6";
@@ -288,11 +221,11 @@ export default function DataAnalysis() {
                                         <ResponsiveContainer width="100%" height="100%">
                                             <BarChart data={daily} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
                                                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                                                <XAxis dataKey="effective_date" tick={{ fontSize: 12 }} interval={Math.ceil(daily.length / 7)} />
+                                                <XAxis dataKey="pay_date" tick={{ fontSize: 12 }} interval={Math.ceil(daily.length / 7)} />
                                                 <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `$${Number(v).toLocaleString()}`} />
-                                                <Tooltip formatter={(v) => [`$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, "Sum Amount"]} labelFormatter={(l) => `Date: ${l}`} />
-                                                <Bar dataKey="sum_amount" fill={CAROLINA} radius={[4, 4, 0, 0]}>
-                                                </Bar>
+                                                <Tooltip formatter={(v, n) => [`$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, n === 'sum_payment_amount' ? 'Payments' : 'Processing Fee']} labelFormatter={(l) => `Date: ${l}`} />
+                                                <Bar dataKey="sum_payment_amount" fill={CAROLINA} radius={[4, 4, 0, 0]} />
+                                                <Bar dataKey="sum_processing_fee" fill={CAROLINA_DARK} radius={[4, 4, 0, 0]} />
                                             </BarChart>
                                         </ResponsiveContainer>
                                     </CardContent>
@@ -301,15 +234,15 @@ export default function DataAnalysis() {
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <Card className="border border-slate-200/60">
                                         <CardHeader>
-                                            <CardTitle className="text-lg">By Originator</CardTitle>
+                                            <CardTitle className="text-lg">By Destination</CardTitle>
                                         </CardHeader>
                                         <CardContent className="h-72">
                                             <ResponsiveContainer width="100%" height="100%">
                                                 <PieChart>
-                                                    <Tooltip formatter={(v, n, e) => [`$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, e?.payload?.originator || ""]} />
+                                                    <Tooltip formatter={(v, n, e) => [`$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, e?.payload?.destination || ""]} />
                                                     <Legend verticalAlign="bottom" height={24} wrapperStyle={{ fontSize: 12 }} />
-                                                    <Pie data={byOriginator} dataKey="sum_amount" nameKey="originator" cx="50%" cy="50%" outerRadius={88} minAngle={5} paddingAngle={2} labelLine={{ stroke: "#cbd5e1" }} label={renderExternalLabel}>
-                                                        {byOriginator.map((_, idx) => (
+                                                    <Pie data={byDestination} dataKey="sum_amount" nameKey="destination" cx="50%" cy="50%" outerRadius={88} minAngle={5} paddingAngle={2} labelLine={{ stroke: "#cbd5e1" }} label={renderExternalLabel}>
+                                                        {byDestination.map((_, idx) => (
                                                             <Cell key={`org-slice-${idx}`} fill={ACCENTS[idx % ACCENTS.length]} stroke="#ffffff" strokeWidth={1} />
                                                         ))}
                                                     </Pie>
@@ -320,15 +253,15 @@ export default function DataAnalysis() {
 
                                     <Card className="border border-slate-200/60">
                                         <CardHeader>
-                                            <CardTitle className="text-lg">By Receiver</CardTitle>
+                                            <CardTitle className="text-lg">By Sender</CardTitle>
                                         </CardHeader>
                                         <CardContent className="h-72">
                                             <ResponsiveContainer width="100%" height="100%">
                                                 <PieChart>
-                                                    <Tooltip formatter={(v, n, e) => [`$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, e?.payload?.receiver || ""]} />
+                                                    <Tooltip formatter={(v, n, e) => [`$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, e?.payload?.sender || ""]} />
                                                     <Legend verticalAlign="bottom" height={24} wrapperStyle={{ fontSize: 12 }} />
-                                                    <Pie data={byReceiver} dataKey="sum_amount" nameKey="receiver" cx="50%" cy="50%" outerRadius={88} minAngle={5} paddingAngle={2} labelLine={{ stroke: "#cbd5e1" }} label={renderExternalLabel}>
-                                                        {byReceiver.map((_, idx) => (
+                                                    <Pie data={bySender} dataKey="sum_amount" nameKey="sender" cx="50%" cy="50%" outerRadius={88} minAngle={5} paddingAngle={2} labelLine={{ stroke: "#cbd5e1" }} label={renderExternalLabel}>
+                                                        {bySender.map((_, idx) => (
                                                             <Cell key={`rcv-slice-${idx}`} fill={ACCENTS[idx % ACCENTS.length]} stroke="#ffffff" strokeWidth={1} />
                                                         ))}
                                                     </Pie>
@@ -347,25 +280,27 @@ export default function DataAnalysis() {
                     <div className="border rounded-md">
                         <div className="p-4 border-b">
                             <div className="text-lg font-semibold">Daily Totals</div>
-                            <div className="text-xs text-muted-foreground">Sum of amounts per day (first 60 rows)</div>
+                            <div className="text-xs text-muted-foreground">Payments and fees per day (first 60 rows)</div>
                         </div>
                         <div className="max-h-96 overflow-auto">
                             <table className="w-full text-sm">
                                 <thead className="sticky top-0 bg-background border-b">
                                     <tr>
-                                        <th className="text-left px-4 py-2 w-1/2">Date</th>
-                                        <th className="text-left px-4 py-2">Sum Amount</th>
+                                        <th className="text-left px-4 py-2 w-1/3">Date</th>
+                                        <th className="text-left px-4 py-2 w-1/3">Sum Payment</th>
+                                        <th className="text-left px-4 py-2 w-1/3">Sum Processing Fee</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {(result.analyses?.daily_totals || [])
                                         .slice()
-                                        .sort((a, b) => (a.effective_date || "").localeCompare(b.effective_date || ""))
+                                        .sort((a, b) => (a.pay_date || "").localeCompare(b.pay_date || ""))
                                         .slice(0, 60)
                                         .map((row, idx) => (
                                             <tr key={`daily-${idx}`} className="border-b last:border-0">
-                                                <td className="px-4 py-2">{row.effective_date || "-"}</td>
-                                                <td className="px-4 py-2">{formatCurrency(row.sum_amount)}</td>
+                                                <td className="px-4 py-2">{row.pay_date || "-"}</td>
+                                                <td className="px-4 py-2">{formatCurrency(row.sum_payment_amount)}</td>
+                                                <td className="px-4 py-2">{formatCurrency(row.sum_processing_fee)}</td>
                                             </tr>
                                         ))}
                                 </tbody>
@@ -373,33 +308,33 @@ export default function DataAnalysis() {
                         </div>
                     </div>
 
-                    {/* By Originator Table */}
+                    {/* By Destination Table */}
                     <div className="border rounded-md">
                         <div className="p-4 border-b">
-                            <div className="text-lg font-semibold">By Originator</div>
-                            <div className="text-xs text-muted-foreground">Top 50 by total amount</div>
+                            <div className="text-lg font-semibold">By Destination</div>
+                            <div className="text-xs text-muted-foreground">Top 50 by total payment</div>
                         </div>
                         <div className="max-h-96 overflow-auto">
                             <table className="w-full text-sm">
                                 <thead className="sticky top-0 bg-background border-b">
                                     <tr>
-                                        <th className="text-left px-4 py-2">Originator</th>
+                                        <th className="text-left px-4 py-2">Destination</th>
                                         <th className="text-left px-4 py-2">Count</th>
-                                        <th className="text-left px-4 py-2">Sum Amount</th>
-                                        <th className="text-left px-4 py-2">Avg Amount</th>
+                                        <th className="text-left px-4 py-2">Sum Payment</th>
+                                        <th className="text-left px-4 py-2">Avg Payment</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {(result.analyses?.by_originator || [])
+                                    {(result.analyses?.by_destination || [])
                                         .slice()
-                                        .sort((a, b) => Number(b.sum_amount || 0) - Number(a.sum_amount || 0))
+                                        .sort((a, b) => Number(b.sum_payment_amount || 0) - Number(a.sum_payment_amount || 0))
                                         .slice(0, 50)
                                         .map((row, idx) => (
-                                            <tr key={`org-${idx}`} className="border-b last:border-0">
-                                                <td className="px-4 py-2">{row.originator || "-"}</td>
+                                            <tr key={`dest-${idx}`} className="border-b last:border-0">
+                                                <td className="px-4 py-2">{row.destination || "-"}</td>
                                                 <td className="px-4 py-2">{formatNumber(row.count)}</td>
-                                                <td className="px-4 py-2">{formatCurrency(row.sum_amount)}</td>
-                                                <td className="px-4 py-2">{formatCurrency(row.avg_amount)}</td>
+                                                <td className="px-4 py-2">{formatCurrency(row.sum_payment_amount)}</td>
+                                                <td className="px-4 py-2">{formatCurrency(row.avg_payment_amount)}</td>
                                             </tr>
                                         ))}
                                 </tbody>
@@ -407,31 +342,31 @@ export default function DataAnalysis() {
                         </div>
                     </div>
 
-                    {/* By Receiver Table */}
+                    {/* By Sender Table */}
                     <div className="border rounded-md">
                         <div className="p-4 border-b">
-                            <div className="text-lg font-semibold">By Receiver</div>
+                            <div className="text-lg font-semibold">By Sender</div>
                             <div className="text-xs text-muted-foreground">Top 50 by total amount</div>
                         </div>
                         <div className="max-h-96 overflow-auto">
                             <table className="w-full text-sm">
                                 <thead className="sticky top-0 bg-background border-b">
                                     <tr>
-                                        <th className="text-left px-4 py-2">Receiver</th>
+                                        <th className="text-left px-4 py-2">Sender</th>
                                         <th className="text-left px-4 py-2">Count</th>
                                         <th className="text-left px-4 py-2">Sum Amount</th>
                                         <th className="text-left px-4 py-2">Avg Amount</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {(result.analyses?.by_receiver || [])
+                                    {(result.analyses?.by_sender || [])
                                         .slice()
                                         .sort((a, b) => Number(b.sum_amount || 0) - Number(a.sum_amount || 0))
                                         .slice(0, 50)
                                         .map((row, idx) => (
-                                            <tr key={`rcv-${idx}`} className="border-b last:border-0">
-                                                <td className="px-4 py-2">{row.receiver || "-"}</td>
-                                                <td className="px-4 py-2">{formatNumber(row.count)}</td>
+                                            <tr key={`snd-${idx}`} className="border-b last:border-0">
+                                                <td className="px-4 py-2">{row.sender || "-"}</td>
+                                                <td className="px-4 py-2">{formatNumber(row.num_checks)}</td>
                                                 <td className="px-4 py-2">{formatCurrency(row.sum_amount)}</td>
                                                 <td className="px-4 py-2">{formatCurrency(row.avg_amount)}</td>
                                             </tr>
