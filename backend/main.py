@@ -21,7 +21,7 @@ from azure.azure_client import AzureClient
 from edi_search_integration import EDISearchIntegration
 from edi_json_to_excel import EDIDataLoader
 from align_rx_json_to_excel import AlignRxDataLoader
-from alignRx_parser import AlignRxParser
+from alignRx_parser import AlignRxParser, DuplicateReportError
 
 # Load environment variables from .env file
 load_dotenv()
@@ -513,6 +513,58 @@ async def upload_alignrx_report(
         if len(file_content) == 0:
             raise HTTPException(status_code=400, detail="File is empty")
 
+        # Persist to a temporary file for parser consumption
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as tmp:
+            tmp.write(file_content)
+            temp_path = tmp.name
+
+        parsed_record = None
+        parse_error = None
+        is_duplicate_in_index = False
+        schema_validation_failed = False
+        try:
+            parser = AlignRxParser()
+            parsed_record = parser.parse_excel_report(temp_path)
+        except DuplicateReportError as dup_error:
+            # Report already exists in search index - handle gracefully
+            is_duplicate_in_index = True
+            parse_error = str(dup_error)
+            logger.info(f"AlignRx report already exists in search index: {file.filename}")
+        except ValueError as validation_error:
+            # Schema mismatch - parsing incomplete (missing required fields)
+            schema_validation_failed = True
+            parse_error = str(validation_error)
+            logger.warning(f"Schema validation failed for {file.filename}: {parse_error}")
+        except Exception as e:
+            parse_error = str(e)
+        finally:
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+
+        # If parsing failed due to schema validation, reject immediately without uploading blob
+        if schema_validation_failed:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Schema validation failed: {parse_error}. The file does not match the expected AlignRx report format."
+            )
+
+        # If parsing failed for other reasons (not schema validation), also reject
+        if not parsed_record:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Failed to parse AlignRx report{': ' + parse_error if parse_error else ''}"
+            )
+
+        # If report already exists in search index, reject without uploading blob
+        if is_duplicate_in_index:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Report already exists in search index. The file data matches an existing report with the same date, destination, and payment amount."
+            )
+
         # Initialize Azure Blob client for alignrx-reports container
         connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
         container_name = "alignrx-reports"
@@ -526,46 +578,19 @@ async def upload_alignrx_report(
         blob_name = file.filename
 
         # Upload the raw file to Blob Storage (no overwrite)
+        # Only upload if parsing succeeded
         try:
             blob_client.upload_blob(blob_name, file_content, overwrite=False)
             duplicate = False
         except Exception as upload_error:
             if "BlobAlreadyExists" in str(upload_error) or "already exists" in str(upload_error).lower():
-                # Robust duplicate handling: do NOT parse or index duplicates
+                # File already exists in blob storage
                 raise HTTPException(
                     status_code=409,
                     detail=f"File '{file.filename}' already exists in the container"
                 )
             else:
                 raise upload_error
-
-        # Persist to a temporary file for parser consumption
-        import tempfile
-        with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as tmp:
-            tmp.write(file_content)
-            temp_path = tmp.name
-
-        parsed_record = None
-        parse_error = None
-        try:
-            parser = AlignRxParser()
-            parsed_record = parser.parse_excel_report(temp_path)
-        except Exception as e:
-            parse_error = str(e)
-        finally:
-            try:
-                os.remove(temp_path)
-            except Exception:
-                pass
-
-        if not parsed_record:
-            # Roll back blob upload only if we created a new blob and parsing failed
-            if not duplicate:
-                try:
-                    blob_client.delete_blob(blob_name)
-                except Exception:
-                    pass
-            raise HTTPException(status_code=422, detail=f"Failed to parse AlignRx report{': ' + parse_error if parse_error else ''}")
 
         # Enrich parsed record with storage metadata
         try:

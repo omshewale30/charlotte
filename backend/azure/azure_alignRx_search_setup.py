@@ -112,6 +112,135 @@ class AlignRxSearchService:
         except Exception as e:
             logger.error(f"Error getting statistics: {e}")
             return {}
+        
+    def check_if_report_exists(self, pay_date: str, destination: str, payment_amount: float) -> bool:
+        """
+        Check if a report exists in the search index using exact field matching.
+        
+        Args:
+            pay_date: Date in YYYY-MM-DD format
+            destination: Destination string (e.g., "STUDENT STORES PHARMACY")
+            payment_amount: Payment amount as float
+            
+        Returns:
+            True if a matching report exists, False otherwise
+        """
+        try:
+            # Convert date string to DateTimeOffset format for filtering
+            # pay_date is Edm.DateTimeOffset, so we need ISO 8601 format with timezone
+            # Use the full day range to ensure we catch the date regardless of time
+            date_start = f"{pay_date}T00:00:00Z"
+            date_end = f"{pay_date}T23:59:59Z"
+            
+            # Build filter expression for exact matching
+            # pay_date is DateTimeOffset, destination is string, payment_amount is double
+            filter_expr = (
+                f"pay_date ge {date_start} and pay_date le {date_end} and "
+                f"destination eq '{destination}' and "
+                f"payment_amount eq {payment_amount}"
+            )
+            
+            # Use filter parameter for exact matching (not search_text)
+            result = self.search_client.search(
+                search_text="",  # Empty search text, using filter only
+                filter=filter_expr,
+                select=["report_id"],  # Only need to know if it exists
+                top=1  # Only need to check if at least one exists
+            )
+            
+            # SearchItemPaged is an iterator, so we need to iterate to check existence
+            for _ in result:
+                return True  # Found at least one match
+            return False  # No matches found
+        except Exception as e:
+            logger.error(f"Error checking if report exists: {e}")
+            return False
+    
+    def clear_all_documents(self) -> Dict:
+        """
+        Delete all documents from the search index.
+        
+        Returns:
+            Dict with success status and count of deleted documents
+        """
+        try:
+            # Get total count first
+            count_result = self.search_client.search(
+                search_text="*",
+                include_total_count=True,
+                top=0
+            )
+            total_before = count_result.get_count()
+            
+            if total_before == 0:
+                logger.info("Index is already empty")
+                return {
+                    "success": True,
+                    "deleted_count": 0,
+                    "message": "Index is already empty"
+                }
+            
+            logger.info(f"Found {total_before} documents to delete")
+            
+            # Retrieve all document IDs (using report_id as the key field)
+            # We'll fetch in batches to avoid memory issues
+            all_doc_ids = []
+            batch_size = 1000
+            
+            # Search for all documents, selecting only the key field
+            # Note: Azure Search requires the key field name from the schema
+            results = self.search_client.search(
+                search_text="*",
+                select=["report_id"],
+                include_total_count=True
+            )
+            
+            # Collect all IDs - Azure Search delete_documents expects documents
+            # with the key field matching the schema (report_id in this case)
+            for doc in results:
+                if "report_id" in doc:
+                    all_doc_ids.append({"report_id": doc["report_id"]})
+                # Also check for "id" in case documents use that field name
+                elif "id" in doc:
+                    all_doc_ids.append({"report_id": doc["id"]})
+            
+            if not all_doc_ids:
+                logger.warning("No document IDs found to delete")
+                return {
+                    "success": True,
+                    "deleted_count": 0,
+                    "message": "No documents found to delete"
+                }
+            
+            # Delete documents in batches
+            total_deleted = 0
+            for i in range(0, len(all_doc_ids), batch_size):
+                batch = all_doc_ids[i:i + batch_size]
+                try:
+                    result = self.search_client.delete_documents(documents=batch)
+                    successful = sum(1 for r in result if r.succeeded)
+                    total_deleted += successful
+                    logger.info(f"Deleted batch {i//batch_size + 1}: {successful}/{len(batch)} documents")
+                except Exception as batch_error:
+                    logger.error(f"Error deleting batch {i//batch_size + 1}: {batch_error}")
+            
+            logger.info(f"Total documents deleted: {total_deleted}/{len(all_doc_ids)}")
+            
+            return {
+                "success": True,
+                "deleted_count": total_deleted,
+                "total_before": total_before,
+                "message": f"Successfully deleted {total_deleted} documents from index '{self.index_name}'"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error clearing index: {e}")
+            return {
+                "success": False,
+                "deleted_count": 0,
+                "error": str(e),
+                "message": f"Failed to clear index: {e}"
+            }
 
     # def setup_azure_alignRx_search_from_env(self):
     #     """Initialize search service from environment variables.

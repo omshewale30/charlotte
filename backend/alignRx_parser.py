@@ -11,13 +11,20 @@ import pandas as pd
 import sys
 from azure.azure_blob_container_client import AzureBlobContainerClient
 import datetime
+from azure.azure_alignRx_search_setup import AlignRxSearchService
+
+class DuplicateReportError(Exception):
+    """Exception raised when a report already exists in the search index"""
+    pass
 
 class AlignRxParser:
     def __init__(self):
-        self.reports_dir = 'reports'
+        self.search_service = AlignRxSearchService()
+        
         self.azure_client = AzureBlobContainerClient(connection_string=os.getenv("AZURE_STORAGE_CONNECTION_STRING"), container_name='alignrx-reports')
 
-        self.output_file = 'remittance_summary.json'
+        
+
 
     def parse_excel_report(self, file_path: str) -> dict:
         """
@@ -153,6 +160,36 @@ class AlignRxParser:
 
         if state != 'DONE':
             print(f"Warning: Parser finished for {file_path} but may be incomplete. Final state: {state}", file=sys.stderr)
+        
+        required_fields = ['date', 'destination', 'payment_amount']
+        missing_fields = [field for field in required_fields if not report_data.get(field)]
+
+        if missing_fields:
+            error_msg = f"Parsing incomplete: missing required fields: {', '.join(missing_fields)}. " \
+                        f"Report may not match expected schema. Final state: {state}"
+            print(f"Error: {error_msg}", file=sys.stderr)
+            raise ValueError(error_msg)
+        # Check if the report_data is already in the search index
+        # We need to check the pay_date, destination, and the total payment amount
+        try:
+            if self.search_service.check_if_report_exists(
+                report_data.get('date'), 
+                report_data.get('destination'), 
+                report_data.get('payment_amount')
+            ):
+                print(f"Report {file_path} already exists in the search index", file=sys.stderr)
+                raise DuplicateReportError(
+                    f"Report with date '{report_data.get('date')}', "
+                    f"destination '{report_data.get('destination')}', and "
+                    f"payment amount '{report_data.get('payment_amount')}' already exists in the search index"
+                )
+        except DuplicateReportError:
+            # Re-raise duplicate errors so they can be handled by the caller
+            raise
+        except Exception as e:
+            # Log the error but continue processing - if the check fails, 
+            # we'll allow the upload to proceed (fail open)
+            print(f"Warning: Could not check if report exists in search index: {e}. Continuing with upload.", file=sys.stderr)
 
         return report_data
     
