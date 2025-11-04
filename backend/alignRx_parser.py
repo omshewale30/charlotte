@@ -106,12 +106,12 @@ class AlignRxParser:
                     
             elif state == 'PARSE_CENTRAL_PAY':
                 # Now we're in the central pay section, parsing line items
-                # until we hit the "Processing Fee"
+                # until we hit the "Processing Fee" or "Payment Amount"
                 
                 first_cell = row_cells[0]
                 last_cell = row_cells[-1]
 
-                # Check if this row is a payment line
+                # First, check if this is a payment line (most common case)
                 match = payment_line_re.search(first_cell)
                 
                 if match:
@@ -131,6 +131,18 @@ class AlignRxParser:
                         print(f"Warning: Could not parse amount '{last_cell}' for '{first_cell}' in {file_path}", file=sys.stderr)
                     except Exception as e:
                         print(f"Warning: Error parsing line '{row_str}' in {file_path}: {e}", file=sys.stderr)
+
+                # Check if this is the "Payment Amount" line (some reports skip Processing Fee)
+                elif "Payment Amount" in first_cell:
+                    try:
+                        total_amount = float(last_cell.replace(',', ''))
+                        report_data['payment_amount'] = total_amount
+                        state = 'DONE'
+                        break  # Exit immediately - we have everything we need
+                    except ValueError:
+                        print(f"Warning: Could not parse payment amount '{last_cell}' in {file_path}", file=sys.stderr)
+                        state = 'DONE'
+                        break  # Exit even if parse failed
 
                 # Check if this is the "Processing Fee" line
                 elif "Processing Fee" in first_cell:
