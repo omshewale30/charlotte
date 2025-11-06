@@ -32,6 +32,85 @@ class AlignRxDataLoader:
         except Exception:
             return False
 
+    def _deduplicate_records(self, records: List[Dict]) -> List[Dict]:
+        """
+        Remove duplicate records based on pay_date, destination, and payment_amount.
+        Uses a small tolerance for payment_amount to handle floating point precision issues.
+        Keeps the first occurrence of each duplicate group.
+        
+        Args:
+            records: List of record dictionaries
+            
+        Returns:
+            Deduplicated list of records
+        """
+        if not records:
+            return records
+        
+        # Tolerance for floating point comparison (0.01 cents)
+        tolerance = 0.01
+        
+        # Normalize pay_date to string format for comparison
+        # pay_date might be datetime, date, or string
+        def normalize_date(d):
+            if d is None:
+                return None
+            if isinstance(d, str):
+                # Try to parse and normalize
+                try:
+                    dt = pd.to_datetime(d)
+                    return dt.strftime('%Y-%m-%d') if hasattr(dt, 'strftime') else str(dt.date())
+                except:
+                    return str(d)
+            elif hasattr(d, 'date'):  # datetime object
+                return d.date().isoformat()
+            elif hasattr(d, 'isoformat'):  # date object
+                return d.isoformat()
+            return str(d)
+        
+        # Use a dictionary keyed by (date, destination) to store lists of amounts
+        # This allows O(1) lookup and O(n) overall performance
+        seen_groups = {}  # {(date, destination): [amount1, amount2, ...]}
+        deduplicated = []
+        duplicates_removed = 0
+        
+        for record in records:
+            pay_date = normalize_date(record.get('pay_date'))
+            destination = record.get('destination')
+            payment_amount = record.get('payment_amount')
+            
+            # Skip if any key field is missing
+            if not all([pay_date, destination, payment_amount is not None]):
+                # Keep records with missing fields (they can't be duplicates)
+                deduplicated.append(record)
+                continue
+            
+            # Create a key for grouping (date + destination)
+            group_key = (pay_date, destination)
+            
+            # Check if we've seen a record with same date/destination and similar amount
+            is_duplicate = False
+            if group_key in seen_groups:
+                # Check all amounts in this group for tolerance match
+                for seen_amount in seen_groups[group_key]:
+                    if abs(seen_amount - payment_amount) <= tolerance:
+                        is_duplicate = True
+                        duplicates_removed += 1
+                        break
+            
+            if not is_duplicate:
+                # Add to seen groups
+                if group_key not in seen_groups:
+                    seen_groups[group_key] = []
+                seen_groups[group_key].append(payment_amount)
+                deduplicated.append(record)
+        
+        if duplicates_removed > 0:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Deduplication removed {duplicates_removed} duplicate record(s) based on pay_date, destination, and payment_amount")
+        
+        return deduplicated
 
     def _load_search_records(self, start_date: str, end_date: str) -> List[Dict]:
         """Query Azure AI Search for alignRx reports within [start_date, end_date].
@@ -80,6 +159,7 @@ class AlignRxDataLoader:
         """Load AlignRx report records from Azure AI Search within the date range.
 
         The `pay_date` is expected in YYYY-MM-DD format.
+        Note: Deduplication happens automatically in to_dataframe() method.
         """
         # Validate date inputs
         _ = self._parse_date(start_date)
@@ -90,8 +170,15 @@ class AlignRxDataLoader:
 
 
     def to_dataframe(self, records: List[Dict]) -> pd.DataFrame:
-        """Convert records to a pandas DataFrame and normalize types."""
-        df = pd.DataFrame(records or [])
+        """Convert records to a pandas DataFrame and normalize types.
+        
+        Automatically deduplicates records based on pay_date, destination, and payment_amount
+        before converting to DataFrame.
+        """
+        # Deduplicate records first to handle race condition duplicates
+        records = self._deduplicate_records(records or [])
+        
+        df = pd.DataFrame(records)
         if df.empty:
             return df
 

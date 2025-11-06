@@ -13,6 +13,8 @@ import re
 from datetime import datetime
 from openai import AzureOpenAI
 import json
+import pandas as pd
+import numpy as np
 from auth import get_current_user, require_unc_email, get_optional_user
 from edi_preprocessor import EDIProcessor
 from azure.azure_blob_container_client import AzureBlobContainerClient
@@ -309,7 +311,22 @@ async def analyze_edi_range(request: EDIAnalysisRequest, user: Dict = Depends(re
 
         # Convert DataFrames to JSON-serializable structures
         def df_to_records(d):
-            return [] if d is None or getattr(d, 'empty', True) else d.to_dict(orient="records")
+            if d is None or getattr(d, 'empty', True):
+                return []
+            # Convert to dict first, then replace NaN values with None for JSON serialization
+            records = d.to_dict(orient="records")
+            # Clean NaN values from the records
+            cleaned_records = []
+            for record in records:
+                cleaned_record = {}
+                for key, value in record.items():
+                    # Check if value is NaN using pandas isna (handles all NaN types)
+                    if pd.isna(value):
+                        cleaned_record[key] = None
+                    else:
+                        cleaned_record[key] = value
+                cleaned_records.append(cleaned_record)
+            return cleaned_records
 
         return {
             "success": True,
@@ -340,7 +357,22 @@ async def analyze_alignrx_range(request: EDIAnalysisRequest, user: Dict = Depend
         analyses = loader.analyze(df)
         # Convert DataFrames to JSON-serializable structures
         def df_to_records(d):
-            return [] if d is None or getattr(d, 'empty', True) else d.to_dict(orient="records")
+            if d is None or getattr(d, 'empty', True):
+                return []
+            # Convert to dict first, then replace NaN values with None for JSON serialization
+            records = d.to_dict(orient="records")
+            # Clean NaN values from the records
+            cleaned_records = []
+            for record in records:
+                cleaned_record = {}
+                for key, value in record.items():
+                    # Check if value is NaN using pandas isna (handles all NaN types)
+                    if pd.isna(value):
+                        cleaned_record[key] = None
+                    else:
+                        cleaned_record[key] = value
+                cleaned_records.append(cleaned_record)
+            return cleaned_records
 
         return {
             "success": True,
