@@ -16,7 +16,6 @@ import json
 import pandas as pd
 import numpy as np
 from auth import get_current_user, require_unc_email, get_optional_user
-from edi_preprocessor import EDIProcessor
 from azure.azure_blob_container_client import AzureBlobContainerClient
 from incremental_index_updater import IncrementalIndexUpdater
 from azure.azure_client import AzureClient
@@ -24,6 +23,8 @@ from edi_search_integration import EDISearchIntegration
 from edi_json_to_excel import EDIDataLoader
 from align_rx_json_to_excel import AlignRxDataLoader
 from alignRx_parser import AlignRxParser, DuplicateReportError
+from concurrent.futures import ThreadPoolExecutor
+import asyncio
 
 # Load environment variables from .env file
 load_dotenv()
@@ -685,7 +686,7 @@ async def upload_alignrx_report(
     except Exception as e:
         logger.error(f"Error uploading AlignRx report: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to upload AlignRx report: {str(e)}")
-
+executor = ThreadPoolExecutor(max_workers=4)
 @app.post("/api/upload-edi-report")
 async def upload_edi_report(
     file: UploadFile = File(...),
@@ -724,7 +725,9 @@ async def upload_edi_report(
 
         # Upload to Azure Blob Storage - let Azure handle duplicates
         try:
-            blob_client.upload_blob(blob_name, file_content, overwrite=False)
+            loop = asyncio.get_event_loop()
+            loop.run_in_executor(executor, blob_client.upload_blob, blob_name, file_content, overwrite=False)
+       
         except Exception as upload_error:
             # If file already exists, Azure will raise an exception
             if "BlobAlreadyExists" in str(upload_error) or "already exists" in str(upload_error).lower():
