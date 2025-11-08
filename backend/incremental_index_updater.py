@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 from azure.azure_blob_container_client import AzureBlobContainerClient
 from edi_preprocessor import EDITransactionExtractor
-from azure.azure_search_setup import EDISearchService, setup_azure_search_from_env
+from azure.azure_search_setup import EDISearchService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -49,7 +49,7 @@ class IncrementalIndexUpdater:
 
         # Initialize processors
         self.extractor = EDITransactionExtractor()
-        self.search_service = setup_azure_search_from_env()
+        self.search_service = EDISearchService()
 
     def load_processed_files_registry(self) -> Dict[str, ProcessedFileInfo]:
         """Load the registry of processed files from Azure Blob Storage"""

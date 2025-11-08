@@ -22,10 +22,10 @@ from azure.azure_client import AzureClient
 from edi_search_integration import EDISearchIntegration
 from edi_json_to_excel import EDIDataLoader
 from align_rx_json_to_excel import AlignRxDataLoader
-from alignRx_parser import AlignRxParser, DuplicateReportError
+from alignRx_parser import AlignRxParser, DuplicateReportError as AlignRxDuplicateReportError
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
-
+from edi_parser import EDIParser, DuplicateReportError
 # Load environment variables from .env file
 load_dotenv()
 
@@ -146,6 +146,9 @@ unified_memory = UnifiedConversationMemory()
 conversation_memory = ConversationMemory(unified_memory)
 edi_search = EDISearchIntegration(unified_memory, conversation_memory)
 cosmos_client = AzureCosmosClient()
+
+# ThreadPoolExecutor for running synchronous blob operations
+executor = ThreadPoolExecutor(max_workers=4)
 
 # Protected Routes
 @app.post("/api/query", response_model=QueryResponse)
@@ -612,6 +615,7 @@ async def upload_alignrx_report(
 
         # Upload the raw file to Blob Storage (no overwrite)
         # Only upload if parsing succeeded
+        # Run blob operations in executor with timeout to avoid blocking the event loop
         try:
             blob_client.upload_blob(blob_name, file_content, overwrite=False)
             duplicate = False
@@ -645,6 +649,7 @@ async def upload_alignrx_report(
     
 
         # Prepare and upload parsed document to Azure AI Search (AlignRx index)
+        # Run indexing in executor to avoid blocking the event loop
         index_success = False
         try:
             # Normalize fields to match index schema
@@ -686,7 +691,7 @@ async def upload_alignrx_report(
     except Exception as e:
         logger.error(f"Error uploading AlignRx report: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to upload AlignRx report: {str(e)}")
-executor = ThreadPoolExecutor(max_workers=4)
+
 @app.post("/api/upload-edi-report")
 async def upload_edi_report(
     file: UploadFile = File(...),
@@ -708,45 +713,76 @@ async def upload_edi_report(
         # Read file content
         file_content = await file.read()
 
+        blob_client = AzureBlobContainerClient(os.getenv("AZURE_STORAGE_CONNECTION_STRING"), "edi-reports")
+        if blob_client.exists(file.filename):
+            raise HTTPException(status_code=409, detail=f"File '{file.filename}' already exists in the container")
+
         if len(file_content) == 0:
             raise HTTPException(status_code=400, detail="File is empty")
-
-        # Initialize Azure Blob client for edi-reports container
-        connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-        container_name = "edi-reports"
-
-        if not connection_string:
-            raise HTTPException(status_code=500, detail="Azure Storage configuration not found")
-
-        blob_client = AzureBlobContainerClient(connection_string, container_name)
-
-        # Use original filename to allow Azure's duplicate detection to work
+        
+        # Save to temporary file for parsing
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as tmp:
+            tmp.write(file_content)
+            temp_path = tmp.name
+        
+        parsed_result = None
+        parse_error = None
+        is_duplicate_in_index = False
         blob_name = file.filename
 
-        # Upload to Azure Blob Storage - let Azure handle duplicates
         try:
-            loop = asyncio.get_event_loop()
-            loop.run_in_executor(executor, blob_client.upload_blob, blob_name, file_content, overwrite=False)
-       
-        except Exception as upload_error:
-            # If file already exists, Azure will raise an exception
-            if "BlobAlreadyExists" in str(upload_error) or "already exists" in str(upload_error).lower():
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"File '{file.filename}' already exists in the container"
-                )
-            else:
-                raise upload_error
+            parser = EDIParser()
+            parsed_result = parser.parse_edi_file(temp_path, blob_name)
+
+        except DuplicateReportError as dup_error:
+            # Report already exists in search index - handle gracefully
+            is_duplicate_in_index = True
+            parse_error = str(dup_error)
+            logger.info(f"EDI report already exists in search index: {file.filename}")
+        except Exception as e:
+            parse_error = str(e)
+            logger.error(f"Error parsing EDI file: {parse_error}")
+        finally:
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+        
+        if not parsed_result:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Failed to parse EDI report{': ' + parse_error if parse_error else ''}"
+            )
+        
+        if is_duplicate_in_index:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Report already exists in search index: {parse_error}"
+            )
+
+        # Upload to Azure Blob Storage (after successful parsing and duplicate check)
+        blob_client.upload_blob(blob_name, file_content, overwrite=False)
+        logger.info(f"File uploaded to blob storage: {blob_name}")
+
+        # Index transactions in search index
+        index_success = parser.index_transactions(parsed_result['transactions'], parsed_result['file_name'])
+        if index_success:
+            logger.info(f"Successfully indexed {parsed_result['transaction_count']} transactions from {blob_name}")
+        else:
+            logger.warning(f"Failed to index transactions from {blob_name}")
 
         user_email = user.get('email', 'unknown') if user and isinstance(user, dict) else 'unknown'
-        logger.info(f"File uploaded successfully: {blob_name} by user {user_email}")
+        logger.info(f"EDI report processed: {blob_name} by user {user_email}; indexed={index_success}")
 
         return {
             "success": True,
-            "message": "File uploaded successfully",
+            "message": "File uploaded and processed successfully",
             "filename": file.filename,
             "blob_name": blob_name,
             "size": len(file_content),
+            "transaction_count": parsed_result['transaction_count'],
+            "indexed": index_success,
             "uploaded_by": user.get('email') if user and isinstance(user, dict) else None
         }
 
@@ -759,7 +795,10 @@ async def upload_edi_report(
 
 @app.post("/api/update-search-index")
 async def update_search_index(user: Dict = Depends(require_unc_email)):
-    """Update search index with new EDI files incrementally"""
+    """We do not need this endpoint anymore as we are updating the search index as we upload the EDI reports
+    
+    
+    """
 
     try:
         user_email = user.get('email', 'unknown') if user and isinstance(user, dict) else 'unknown'

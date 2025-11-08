@@ -17,21 +17,22 @@ logger = logging.getLogger(__name__)
 class EDISearchService:
     """Service to manage EDI transactions in Azure AI Search"""
     
-    def __init__(self, endpoint: str, api_key: str, index_name: str = "edi-transactions"):
+    def __init__(self):
+        load_dotenv()
+        endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
+        api_key = os.getenv("AZURE_SEARCH_API_KEY")
+        index_name = os.getenv("AZURE_SEARCH_INDEX_NAME", "edi-transactions")
         self.endpoint = endpoint
         self.api_key = api_key
         self.index_name = index_name
-        self.credential = AzureKeyCredential(api_key)
-        
-        # Initialize clients
-        self.index_client = SearchIndexClient(
-            endpoint=endpoint,
-            credential=self.credential
-        )
         self.search_client = SearchClient(
             endpoint=endpoint,
             index_name=index_name,
-            credential=self.credential
+            credential=AzureKeyCredential(api_key)
+        )
+        self.index_client = SearchIndexClient(
+            endpoint=endpoint,
+            credential=AzureKeyCredential(api_key)
         )
 
     def upload_documents(self, documents: List[Dict]) -> bool:
@@ -106,28 +107,36 @@ class EDISearchService:
         except Exception as e:
             logger.error(f"Error getting statistics: {e}")
             return {}
+    
+    def check_if_file_exists(self, file_name: str) -> bool:
+        """
+        Check if transactions from a file already exist in the search index.
+        
+        Args:
+            file_name: The filename to check for
+            
+        Returns:
+            True if transactions from this file exist, False otherwise
+        """
+        try:
+            # Search for any transactions with this file_name
+            # Escape single quotes in file_name for the filter
+            escaped_file_name = file_name.replace("'", "''")
+            filter_expr = f"file_name eq '{escaped_file_name}'"
+            
+            result = self.search_client.search(
+                search_text="",  # Empty search text, using filter only
+                filter=filter_expr,
+                select=["id"],  # Only need to know if it exists
+                top=1  # Only need to check if at least one exists
+            )
+            
+            # SearchItemPaged is an iterator, so we need to iterate to check existence
+            for _ in result:
+                return True  # Found at least one match
+            return False  # No matches found
+        except Exception as e:
+            logger.error(f"Error checking if file exists: {e}")
+            return False
 
-def setup_azure_search_from_env():
-    """Initialize search service from environment variables.
 
-    Loads variables from `backend/.env` so the script works regardless of the
-    current working directory.
-    """
-    # Resolve the backend .env path relative to this file
-    backend_dir = os.path.dirname(os.path.abspath(__file__))
-    env_path = os.path.join(backend_dir, ".env")
-
-    # Load environment variables from backend/.env if it exists
-    load_dotenv(dotenv_path=env_path)
-
-    # Also load any process-level env vars (without overriding existing)
-    load_dotenv(override=False)
-
-    endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
-    api_key = os.getenv("AZURE_SEARCH_API_KEY")
-    index_name = os.getenv("AZURE_SEARCH_INDEX_NAME", "edi-transactions")
-
-    if not endpoint or not api_key:
-        raise ValueError("Please set AZURE_SEARCH_ENDPOINT and AZURE_SEARCH_API_KEY in backend/.env or environment")
-
-    return EDISearchService(endpoint, api_key, index_name=index_name)

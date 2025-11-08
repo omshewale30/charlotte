@@ -9,14 +9,14 @@ from typing import List, Dict, Optional
 import pandas as pd
 import openpyxl  
 from azure.azure_blob_container_client import AzureBlobContainerClient
-from azure.azure_search_setup import setup_azure_search_from_env
+from azure.azure_search_setup import EDISearchService
 
 class EDIDataLoader:
     def __init__(self, start_date: str, end_date: str):
         self.start_date = start_date
         self.end_date = end_date
         # Initialize Azure AI Search service (preferred data source)
-        self.search_service = setup_azure_search_from_env()
+        self.search_service = EDISearchService()
         # Kept for backward compatibility but unused in search mode
         self.connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
         self.json_container_name = os.getenv("AZURE_JSON_STORAGE_CONTAINER_NAME", "edi-json-structured")
