@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
 """
-Script to create the master-edi Azure AI Search index.
+Script to create or update the master-edi Azure AI Search index.
 
-This script creates a new search index named "master-edi" with the same schema
-as the edi-transactions index.
+This script creates a new search index named "master-edi" with additional fields
+beyond the edi-transactions index, including:
+- input_format: The EDI input format (ACHCCD+, ACHCTX, etc.)
+- demand_account_credit: The demand account credit field
+- line_items: A collection of complex objects containing line item details
+  (line_number, seller_invoice_num, invoice_amount, net_amount_paid)
+
+IMPORTANT: Azure Search does not support adding fields to an existing index.
+If the index already exists, you must delete and recreate it, which will
+require re-indexing all documents.
 
 Usage:
     python backend/scripts/create_master_edi_index.py
@@ -227,6 +235,70 @@ def create_master_edi_index():
                 sortable=False,
                 facetable=False,
                 retrievable=True
+            ),
+            # Input format (ACHCCD+, ACHCTX, etc.)
+            SimpleField(
+                name="input_format",
+                type=SearchFieldDataType.String,
+                searchable=False,
+                filterable=True,
+                sortable=True,
+                facetable=True,
+                retrievable=True
+            ),
+            # Demand account credit
+            SimpleField(
+                name="demand_account_credit",
+                type=SearchFieldDataType.String,
+                searchable=False,
+                filterable=True,
+                sortable=True,
+                facetable=False,
+                retrievable=True
+            ),
+            # Line items (complex field for ACHCTX format details)
+            # Note: Fields within collections cannot be sortable in Azure Search
+            ComplexField(
+                name="line_items",
+                fields=[
+                    SimpleField(
+                        name="line_number",
+                        type=SearchFieldDataType.String,
+                        searchable=False,
+                        filterable=True,
+                        sortable=False,  # Cannot be sortable in a collection
+                        facetable=False,
+                        retrievable=True
+                    ),
+                    SearchableField(
+                        name="seller_invoice_num",
+                        type=SearchFieldDataType.String,
+                        searchable=True,
+                        filterable=True,
+                        sortable=False,
+                        facetable=False,
+                        retrievable=True
+                    ),
+                    SimpleField(
+                        name="invoice_amount",
+                        type=SearchFieldDataType.Double,
+                        searchable=False,
+                        filterable=True,
+                        sortable=False,  # Cannot be sortable in a collection
+                        facetable=True,
+                        retrievable=True
+                    ),
+                    SimpleField(
+                        name="net_amount_paid",
+                        type=SearchFieldDataType.Double,
+                        searchable=False,
+                        filterable=True,
+                        sortable=False,  # Cannot be sortable in a collection
+                        facetable=True,
+                        retrievable=True
+                    ),
+                ],
+                collection=True  # This makes it an array of complex objects
             ),
         ]
         

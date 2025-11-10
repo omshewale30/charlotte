@@ -52,3 +52,6 @@ backend/transactions_beta.json
 .gitignore
 backend/beta/transactions_beta.json
 
+backend/beta/all_transactions_beta.json
+.gitignore
+backend/beta/chs_transactions_beta.json

@@ -714,7 +714,7 @@ async def upload_edi_report(
         # Read file content
         file_content = await file.read()
 
-        blob_client = AzureBlobContainerClient(os.getenv("AZURE_STORAGE_CONNECTION_STRING"), "edi-reports")
+        blob_client = AzureBlobContainerClient(os.getenv("AZURE_STORAGE_CONNECTION_STRING"), "master-edi-reports")
         if blob_client.container_client.get_blob_client(file.filename).exists():
             raise HTTPException(status_code=409, detail=f"File '{file.filename}' already exists in the container")
 
@@ -727,18 +727,26 @@ async def upload_edi_report(
             tmp.write(file_content)
             temp_path = tmp.name
         
-        parsed_result = None
+        parse_result = None
         parse_error = None
-        is_duplicate_in_index = False
+        is_file_duplicate = False
+        chs_index_success = False
+        all_index_success = False
         blob_name = file.filename
 
         try:
             parser = EDIParser()
-            parsed_result = parser.parse_edi_file(temp_path, blob_name)
+            parse_result = parser.parse_edi_file(temp_path, blob_name)
+       
+            
+            if not parse_result.get("chs_transactions"):
+                logger.warning(f"No CHS transactions found in {blob_name}")
 
+        
+        # File-level duplicate: entire file already exists - reject completely
         except DuplicateReportError as dup_error:
             # Report already exists in search index - handle gracefully
-            is_duplicate_in_index = True
+            is_file_duplicate = True
             parse_error = str(dup_error)
             logger.info(f"EDI report already exists in search index: {file.filename}")
         except Exception as e:
@@ -750,26 +758,48 @@ async def upload_edi_report(
             except Exception:
                 pass
         
-        if not parsed_result:
+        if not parse_result or not parse_result.get("all_transactions"):
             raise HTTPException(
                 status_code=422,
                 detail=f"Failed to parse EDI report{': ' + parse_error if parse_error else ''}"
             )
         
-        if is_duplicate_in_index:
+        # If entire file is duplicate, reject the upload
+        if is_file_duplicate:
             raise HTTPException(
                 status_code=409,
                 detail=f"Report already exists in search index: {parse_error}"
             )
+
+        # Extract data from parse result
+        all_transactions = parse_result.get("all_transactions", [])
+        chs_transactions = parse_result.get("chs_transactions", [])
+        chs_duplicate = parse_result.get("chs_duplicate", False)
 
         # Upload to Azure Blob Storage (after successful parsing and duplicate check)
         blob_client.upload_blob(blob_name, file_content, overwrite=False)
         logger.info(f"File uploaded to blob storage: {blob_name}")
 
         # Index transactions in search index
-        index_success = parser.index_transactions(parsed_result['transactions'], parsed_result['file_name'])
+        # Skip CHS indexing if trace numbers are duplicates, but still index all_transactions
+        if chs_duplicate:
+            logger.warning(f"Skipping CHS transaction indexing due to duplicate trace numbers, but indexing all_transactions to master-edi")
+            chs_index_success = False  # Explicitly set to False since we're skipping
+        elif chs_transactions:
+            chs_index_success = parser.index_transactions(chs_transactions, blob_name, "edi-transactions")
+        
+        # Always index all_transactions to master-edi, regardless of CHS duplicate status
+        if all_transactions:
+            all_index_success = parser.index_transactions(all_transactions, blob_name, "master-edi")
+
+        # Consider it successful if all_transactions were indexed (CHS indexing is optional)
+        index_success = all_index_success
+
         if index_success:
-            logger.info(f"Successfully indexed {parsed_result['transaction_count']} transactions from {blob_name}")
+            if chs_duplicate:
+                logger.info(f"Successfully indexed {len(all_transactions)} all transactions from {blob_name} (CHS transactions skipped due to duplicates)")
+            else:
+                logger.info(f"Successfully indexed {len(chs_transactions) if chs_transactions else 0} CHS transactions and {len(all_transactions)} all transactions from {blob_name}")
         else:
             logger.warning(f"Failed to index transactions from {blob_name}")
 
@@ -778,12 +808,15 @@ async def upload_edi_report(
 
         return {
             "success": True,
-            "message": "File uploaded and processed successfully",
+            "message": "File uploaded and processed successfully" + (" (CHS transactions skipped due to duplicates)" if chs_duplicate else ""),
             "filename": file.filename,
             "blob_name": blob_name,
             "size": len(file_content),
-            "transaction_count": parsed_result['transaction_count'],
-            "indexed": index_success,
+            "chs_transaction_count": len(chs_transactions) if chs_transactions else 0,
+            "all_transaction_count": len(all_transactions) if all_transactions else 0,
+            "chs_indexed": chs_index_success,
+            "chs_duplicate": chs_duplicate,
+            "all_indexed": all_index_success,
             "uploaded_by": user.get('email') if user and isinstance(user, dict) else None
         }
 

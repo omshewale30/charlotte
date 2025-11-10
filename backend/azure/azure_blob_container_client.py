@@ -3,10 +3,10 @@ Azure Blob Container Client
 This module provides a client for interacting with Azure Blob Storage containers.
 '''
 
-from azure.storage.blob import BlobServiceClient
+from azure.storage.blob import BlobServiceClient  # pyright: ignore[reportMissingImports]
 
 import os
-from dotenv import load_dotenv
+from dotenv import load_dotenv  # pyright: ignore[reportMissingImports]
 
 load_dotenv()
 

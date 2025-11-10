@@ -17,11 +17,10 @@ logger = logging.getLogger(__name__)
 class EDISearchService:
     """Service to manage EDI transactions in Azure AI Search"""
     
-    def __init__(self):
+    def __init__(self, index_name: str):
         load_dotenv()
         endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
         api_key = os.getenv("AZURE_SEARCH_API_KEY")
-        index_name = os.getenv("AZURE_SEARCH_INDEX_NAME", "edi-transactions")
         self.endpoint = endpoint
         self.api_key = api_key
         self.index_name = index_name
@@ -110,33 +109,57 @@ class EDISearchService:
     
     def check_if_file_exists(self, file_name: str) -> bool:
         """
-        Check if transactions from a file already exist in the search index.
-        
-        Args:
-            file_name: The filename to check for
-            
-        Returns:
-            True if transactions from this file exist, False otherwise
+        Check if a file already exists in the search index.
         """
+        if not file_name:
+            return False
+        
         try:
-            # Search for any transactions with this file_name
-            # Escape single quotes in file_name for the filter
             escaped_file_name = file_name.replace("'", "''")
             filter_expr = f"file_name eq '{escaped_file_name}'"
-            
             result = self.search_client.search(
                 search_text="",  # Empty search text, using filter only
                 filter=filter_expr,
-                select=["id"],  # Only need to know if it exists
-                top=1  # Only need to check if at least one exists
+                top=1  # Only need one match to know at least one exists
             )
-            
-            # SearchItemPaged is an iterator, so we need to iterate to check existence
             for _ in result:
-                return True  # Found at least one match
-            return False  # No matches found
+                return True  # At least one result found
+            return False
         except Exception as e:
             logger.error(f"Error checking if file exists: {e}")
+            return False
+        
+
+
+    def check_if_trace_numbers_exist(self, trace_numbers: List[str]) -> bool:
+        """
+        Check if any trace number from the trace number list already exist in the search index.
+
+        Args:
+            trace_numbers: The trace number list to check for
+        Returns:
+            True if any trace number from the trace number list exist, False otherwise
+        """
+        if not trace_numbers:
+            return False
+
+        # Build filter expression for OR-ing all trace_number values
+        try:
+            # Format: (trace_number eq '123' or trace_number eq '456' or ...)
+            values_str = ",".join(trace_numbers)
+            filter_expr = f"search.in(trace_number, '{values_str}', ',')"
+            result = self.search_client.search(
+                search_text="",  # Empty search text, using filter only
+                filter=filter_expr,
+                top=1  # Only need one match to know at least one exists
+            )
+            for _ in result:
+                return True  # At least one result found
+
+            return False
+
+        except Exception as e:
+            logger.error(f"Error checking if trace numbers exist: {e}")
             return False
 
 
