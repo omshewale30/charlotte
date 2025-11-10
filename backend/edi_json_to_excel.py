@@ -19,7 +19,7 @@ class EDIDataLoader:
         self.search_service = EDISearchService()
         # Kept for backward compatibility but unused in search mode
         self.connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-        self.json_container_name = os.getenv("AZURE_JSON_STORAGE_CONTAINER_NAME", "edi-json-structured")
+        
         self.azure_blob_container_client = None
         
 

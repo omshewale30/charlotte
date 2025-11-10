@@ -101,20 +101,7 @@ export default function Header() {
 
         {/* Actions Section */}
         <div className="flex items-center gap-3">
-        {isAuthenticated() && user ? (
-          <Button
-              variant="outline"
-              size="default"
-              onClick={handleUpdateSearchIndex}
-              disabled={isUpdatingIndex}
-              className="flex items-center gap-2 px-4 py-2 relative"
-          >
-              <RefreshCw className={`h-4 w-4 ${isUpdatingIndex ? 'animate-spin' : ''}`} />
-              <span>
-                  {isUpdatingIndex ? 'Updating...' : 'Update Search Index'}
-              </span>
-          </Button>
-        ) : null}
+
       
 
           {isAuthenticated() && user && (

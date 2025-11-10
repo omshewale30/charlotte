@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 
 from edi_preprocessor import EDITransactionExtractor
 from azure.azure_search_setup import EDISearchService
+import uuid
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -116,15 +117,11 @@ class EDIParser:
             return False
         
         try:
-            # Get current highest ID from search index to continue numbering
-            current_stats = self.search_service.get_statistics()
-            current_count = current_stats.get('total_transactions', 0)
-            
             # Prepare documents for search index
             search_documents = []
-            for i, transaction in enumerate(transactions, start=current_count + 1):
+            for transaction in transactions:
                 doc = {
-                    "id": str(i),
+                    "id": str(uuid.uuid4()),
                     "trace_number": transaction.get("trace_number", ""),
                     "amount": transaction.get("amount", 0.0),
                     "effective_date": transaction.get("effective_date", ""),

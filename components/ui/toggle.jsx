@@ -1,27 +1,54 @@
 //toggle component
-import React, { useState } from 'react'
+import React from 'react'
 
-const Toggle = ({ mode, setMode }) => {
-  const [isChecked, setIsChecked] = useState(mode === "EDI")
+const Toggle = ({ mode, setMode, disabled = false }) => {
+  const isChecked = mode === "EDI"
 
   const handleCheckboxChange = () => {
-    setIsChecked(!isChecked)
-    setMode(isChecked ? "EDI" : "PROCEDURE")
+    if (disabled) return
+    const nextMode = isChecked ? "PROCEDURE" : "EDI"
+    setMode(nextMode)
+  }
+
+  const handleOptionSelect = (nextMode, event) => {
+    if (event) {
+      event.preventDefault()
+      event.stopPropagation()
+    }
+    if (disabled || nextMode === mode) return
+    setMode(nextMode)
+  }
+
+  const handleKeyDown = (event, nextMode) => {
+    if (disabled) return
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      handleOptionSelect(nextMode)
+    }
   }
 
   return (
     <>
-      <label className='themeSwitcherTwo shadow-card relative inline-flex cursor-pointer select-none items-center justify-center rounded-md bg-white p-1'>
+      <label
+        className='themeSwitcherTwo shadow-card relative inline-flex cursor-pointer select-none items-center justify-center rounded-md bg-white p-1'
+        aria-disabled={disabled}
+      >
         <input
           type='checkbox'
           className='sr-only'
           checked={isChecked}
           onChange={handleCheckboxChange}
+          disabled={disabled}
         />
         <span
           className={`flex items-center space-x-[6px] rounded py-2 px-[18px] text-sm font-medium ${
-            !isChecked ? 'text-primary bg-[#f4f7ff]' : 'text-body-color'
+            isChecked ? 'text-primary bg-[#f4f7ff]' : 'text-body-color'
           }`}
+          onClick={(event) => handleOptionSelect("EDI", event)}
+          role="button"
+          tabIndex={disabled ? -1 : 0}
+          onKeyDown={(event) => handleKeyDown(event, "EDI")}
+          aria-pressed={isChecked}
         >
           <svg
             width='16'
@@ -39,8 +66,13 @@ const Toggle = ({ mode, setMode }) => {
         </span>
         <span
           className={`flex items-center space-x-[6px] rounded py-2 px-[18px] text-sm font-medium ${
-            isChecked ? 'text-primary bg-[#f4f7ff]' : 'text-body-color'
+            !isChecked ? 'text-primary bg-[#f4f7ff]' : 'text-body-color'
           }`}
+          onClick={(event) => handleOptionSelect("PROCEDURE", event)}
+          role="button"
+          tabIndex={disabled ? -1 : 0}
+          onKeyDown={(event) => handleKeyDown(event, "PROCEDURE")}
+          aria-pressed={!isChecked}
         >
           <svg
             width='16'

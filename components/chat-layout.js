@@ -12,6 +12,8 @@ import { useAuth } from "@/components/auth-context-msal";
 import { azureCosmosClient } from "@/lib/azure-cosmos-client";
 import Toggle from "@/components/ui/toggle";
 
+const DEFAULT_MODE = "EDI";
+
 
 export default function ChatLayout() {
   const { getAuthHeaders, user } = useAuth();
@@ -22,13 +24,36 @@ export default function ChatLayout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [chatStarted, setChatStarted] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  const [mode, setMode] = useState("EDI");
+  const [mode, setMode] = useState(DEFAULT_MODE);
+  const [modeLocked, setModeLocked] = useState(false);
+  const [conversationModes, setConversationModes] = useState({});
 
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
 
   // Create API client instance
   const apiClient = new APIClient(getAuthHeaders);
+
+  const determineModeFromMessages = (chatMessages = []) => {
+    if (!Array.isArray(chatMessages) || chatMessages.length === 0) {
+      return DEFAULT_MODE;
+    }
+
+    for (let idx = chatMessages.length - 1; idx >= 0; idx--) {
+      const message = chatMessages[idx];
+      if (message?.role !== "assistant") continue;
+
+      if (message?.queryType === "edi_search" || (Array.isArray(message?.transactions) && message.transactions.length > 0)) {
+        return "EDI";
+      }
+
+      if (message?.queryType === "general_ai") {
+        return "PROCEDURE";
+      }
+    }
+
+    return DEFAULT_MODE;
+  };
 
   // Set up auth headers for Azure Cosmos client
   useEffect(() => {
@@ -74,10 +99,18 @@ export default function ChatLayout() {
   };
 
   const handleNewChat = (newSession = null) => {
+    const newConversationId = newSession?.id || null;
     setMessages([]);
-    setConversationId(newSession?.id || null);
+    setConversationId(newConversationId);
     setChatStarted(false);
     setInput("");
+    if (newConversationId && conversationModes[newConversationId]) {
+      setMode(conversationModes[newConversationId]);
+      setModeLocked(Boolean(newSession?.messages?.length));
+    } else {
+      setMode(DEFAULT_MODE);
+      setModeLocked(false);
+    }
 
     // Auto-collapse sidebar on mobile after creating new chat
     if (isMobile) {
@@ -90,9 +123,18 @@ export default function ChatLayout() {
       // Load conversation from Azure Cosmos DB
       const session = await azureCosmosClient.getSession(id);
       if (session) {
+        const sessionMessages = session.messages || [];
         setConversationId(id);
-        setMessages(session.messages || []);
-        setChatStarted(session.messages && session.messages.length > 0);
+        setMessages(sessionMessages);
+        const hasMessages = sessionMessages.length > 0;
+        setChatStarted(hasMessages);
+        const derivedMode = conversationModes[id] || determineModeFromMessages(sessionMessages);
+        setConversationModes((prev) => ({
+          ...prev,
+          [id]: derivedMode,
+        }));
+        setMode(derivedMode);
+        setModeLocked(hasMessages);
 
         // Auto-collapse sidebar on mobile after selection
         if (isMobile) {
@@ -108,6 +150,11 @@ export default function ChatLayout() {
   };
 
   const handleDeleteConversation = (id) => {
+    setConversationModes((prev) => {
+      if (!(id in prev)) return prev;
+      const { [id]: _removed, ...rest } = prev;
+      return rest;
+    });
     if (conversationId === id) {
       handleNewChat();
     }
@@ -123,12 +170,14 @@ export default function ChatLayout() {
 
     if (!input.trim() || isSubmitting) return;
 
+    const isFirstMessage = !chatStarted;
     const userMessage = input.trim();
     setInput("");
 
     // Mark chat as started on first message
-    if (!chatStarted) {
+    if (isFirstMessage) {
       setChatStarted(true);
+      setModeLocked(true);
     }
 
     // Add user message to chat
@@ -190,6 +239,12 @@ export default function ChatLayout() {
       // Persist messages to Azure Cosmos DB
       try {
         const currentConversationId = conversationId || data.conversation_id;
+        if (currentConversationId) {
+          setConversationModes((prev) => ({
+            ...prev,
+            [currentConversationId]: mode,
+          }));
+        }
         if (currentConversationId && user?.email) {
           if (!conversationId) {
             // Create new session for first message
@@ -320,9 +375,11 @@ export default function ChatLayout() {
             <div className="w-full max-w-3xl mt-8">
               <form onSubmit={handleSubmit} className="space-y-4">
                 {/* Toggle switch */}
-                <div className="flex justify-center">
-                  <Toggle mode={mode} setMode={setMode} />
-                </div>
+                {!modeLocked && (
+                  <div className="flex justify-center">
+                    <Toggle mode={mode} setMode={setMode} disabled={modeLocked} />
+                  </div>
+                )}
                 
                 <div className="relative">
                   <textarea
@@ -370,9 +427,15 @@ export default function ChatLayout() {
               <div className="max-w-3xl mx-auto px-4 py-4">
                 <form onSubmit={handleSubmit} className="space-y-4">
                   {/* Toggle switch */}
-                  <div className="flex justify-center">
-                    <Toggle mode={mode} setMode={setMode} />
-                  </div>
+                  {!modeLocked ? (
+                    <div className="flex justify-center">
+                      <Toggle mode={mode} setMode={setMode} disabled={modeLocked} />
+                    </div>
+                  ) : (
+                    <div className="flex justify-center text-xs text-muted-foreground">
+                      Mode locked to {mode === "EDI" ? "EDI" : "Procedure"}
+                    </div>
+                  )}
                   
                   <div className="relative">
                     <textarea

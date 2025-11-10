@@ -17,7 +17,6 @@ import pandas as pd
 import numpy as np
 from auth import get_current_user, require_unc_email, get_optional_user
 from azure.azure_blob_container_client import AzureBlobContainerClient
-from incremental_index_updater import IncrementalIndexUpdater
 from azure.azure_client import AzureClient
 from edi_search_integration import EDISearchIntegration
 from edi_json_to_excel import EDIDataLoader
@@ -542,6 +541,7 @@ async def upload_alignrx_report(
                 status_code=400,
                 detail=f"File type {file_extension} not allowed. Allowed types: {', '.join(sorted(allowed_extensions))}"
             )
+        
 
         # Read file content
         file_content = await file.read()
@@ -715,7 +715,7 @@ async def upload_edi_report(
         file_content = await file.read()
 
         blob_client = AzureBlobContainerClient(os.getenv("AZURE_STORAGE_CONNECTION_STRING"), "edi-reports")
-        if blob_client.exists(file.filename):
+        if blob_client.container_client.get_blob_client(file.filename).exists():
             raise HTTPException(status_code=409, detail=f"File '{file.filename}' already exists in the container")
 
         if len(file_content) == 0:

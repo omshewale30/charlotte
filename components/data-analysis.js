@@ -67,31 +67,31 @@ export default function DataAnalysis() {
             setLoading(false);
         }
     };
-    const handleUpdateSearchIndex = async () => {
-        setIsUpdatingIndex(true);
-        setUpdateStatus(null);
+    // const handleUpdateSearchIndex = async () => {
+    //     setIsUpdatingIndex(true);
+    //     setUpdateStatus(null);
     
-        try {
-          const result = await updateSearchIndex(getAuthHeaders);
-          setUpdateStatus({
-            type: 'success',
-            message: result.message,
-            details: result.details
-          });
-        } catch (error) {
-          setUpdateStatus({
-            type: 'error',
-            message: error.message || 'Failed to update search index'
-          });
-        } finally {
-          setIsUpdatingIndex(false);
+    //     try {
+    //       const result = await updateSearchIndex(getAuthHeaders);
+    //       setUpdateStatus({
+    //         type: 'success',
+    //         message: result.message,
+    //         details: result.details
+    //       });
+    //     } catch (error) {
+    //       setUpdateStatus({
+    //         type: 'error',
+    //         message: error.message || 'Failed to update search index'
+    //       });
+    //     } finally {
+    //       setIsUpdatingIndex(false);
     
-          // Clear status after 5 seconds
-          setTimeout(() => {
-            setUpdateStatus(null);
-          }, 5000);
-        }
-      };
+    //       // Clear status after 5 seconds
+    //       setTimeout(() => {
+    //         setUpdateStatus(null);
+    //       }, 5000);
+    //     }
+    //   };
     
 
     const handleDownload = async () => {
@@ -119,50 +119,6 @@ export default function DataAnalysis() {
         <div className="max-w-5xl mx-auto p-6 space-y-6">
             <h1 className="text-2xl font-semibold">Data Analysis</h1>
         
-                    <Button
-                        variant="outline"
-                        size="default"
-                        onClick={handleUpdateSearchIndex}
-                        disabled={isUpdatingIndex}
-                        className="flex items-center gap-2 px-4 py-2 relative"
-                    >
-                        <RefreshCw className={`h-4 w-4 ${isUpdatingIndex ? 'animate-spin' : ''}`} />
-                        <span>
-                            {isUpdatingIndex ? 'Updating...' : 'Update Search Index'}
-                        </span>
-                    </Button>
-
-                    {/* Status notification */}
-                    {updateStatus && (
-                        <div
-                            className={`w-full px-6 py-4 text-sm ${
-                                updateStatus.type === 'success'
-                                    ? 'bg-green-50 text-green-800 border-b border-green-200'
-                                    : 'bg-red-50 text-red-800 border-b border-red-200'
-                            }`}
-                        >
-                            <div className="container mx-auto max-w-6xl">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <strong>{updateStatus.type === 'success' ? '✅ Success:' : '❌ Error:'}</strong> {updateStatus.message}
-                                        {updateStatus.details && (
-                                            <div className="text-xs mt-1 opacity-75">
-                                                {updateStatus.details.new_files_processed} files processed, {updateStatus.details.transactions_added} transactions added
-                                            </div>
-                                        )}
-                                    </div>
-                                    <button
-                                        onClick={() => setUpdateStatus(null)}
-                                        className="text-sm opacity-60 hover:opacity-100 px-2 py-1 rounded hover:bg-black/5"
-                                    >
-                                        ✕
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                 <div className="flex flex-col gap-2">
                     <label className="text-sm text-muted-foreground">Start date</label>
