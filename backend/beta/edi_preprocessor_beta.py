@@ -1,7 +1,7 @@
 import os
 import re
 import logging
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 import PyPDF2
 from dataclasses import dataclass, field
@@ -11,6 +11,29 @@ import json
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+CHS_ORIGINATORS = { 
+"BCBS of NC",
+"BCBS-NC",
+"BCBSNC ASO",
+"BCBSNC Host",
+"CAMPUS HEALTH PHARMACY",
+"CIGNA",
+"CIGNA EDGE TRANS",
+"GEHA UMR",
+"Golden Rule Insurance",
+"Medica",
+"National Foundation",
+"NORTH CAROLINA S",
+"OXFORD HEALTH IN",
+"STUDENT RESOURCE",
+"UHC Benefits Pla",
+"UHC COMMUNITY PL",
+"UMR",
+"UMR USNAS",
+"UNITED HEALTHCARE",
+"UNITEDHEALTHCARE",
+    }
 
 @dataclass
 class EDITransactionLineItem:
@@ -155,15 +178,17 @@ class EDITransactionExtractor:
             logger.error(f"Error reading PDF from bytes: {e}")
             return ""
 
-    def parse_edi_file(self, pdf_bytes: bytes, file_name: str) -> List[EDITransaction]:
+    def parse_edi_file(self, pdf_bytes: bytes, file_name: str) -> Tuple[List[EDITransaction], List[EDITransaction]]:
         """
         Main parsing function. Splits file by payment and routes to correct parser.
+        Returns a tuple of lists: (all transactions, CHS transactions)
         """
         full_text = self.extract_text_from_pdf_bytes(pdf_bytes)
         if not full_text:
             return []
 
-        transactions = []
+        all_transactions = []
+        chs_transactions = []
         # Split the entire document by "PAYMENT INFORMATION:"
         # This correctly groups multi-page transactions.
         payment_chunks = re.split(self.patterns['payment_split'], full_text, flags=re.DOTALL)
@@ -171,7 +196,7 @@ class EDITransactionExtractor:
         for chunk in payment_chunks[1:]:  # Skip the header chunk
             input_format = self._search('input_format', chunk)
             
-            if input_format == 'ACHCCD+':
+            if input_format == 'ACHCCD+' or input_format == 'ACHCCD':
                 transaction = self._parse_ccd_chunk(chunk, file_name)
             elif input_format == 'ACHCTX':
                 transaction = self._parse_ctx_chunk(chunk, file_name)
@@ -180,9 +205,16 @@ class EDITransactionExtractor:
                 transaction = None
                 
             if transaction:
-                transactions.append(transaction)
+                all_transactions.append(transaction)
+            
+            if transaction and transaction.originator in CHS_ORIGINATORS:
+                #delete the 'line_items' from the transaction
+                transaction.line_items = []
+
+                chs_transactions.append(transaction)
                 
-        return transactions
+    
+        return all_transactions, chs_transactions
 
     def _parse_ccd_chunk(self, chunk: str, file_name: str) -> Optional[EDITransaction]:
         """Parses a payment chunk identified as ACHCCD+ (Current-EDI-sample format)."""
@@ -211,6 +243,7 @@ class EDITransactionExtractor:
             receiver = self._search('receiver', chunk)
             originator = self._search('originator', chunk)
             mutually_defined = self._search('mutually_defined', chunk)
+            input_format = self._search('input_format', chunk)
 
             return EDITransaction(
                 trace_number=trace_number,
@@ -223,10 +256,9 @@ class EDITransactionExtractor:
                 routing_id_debit=routing_id_debit,
                 company_id_debit=company_id_debit,
                 mutually_defined=mutually_defined,
-                input_format="ACHCCD+",
+                input_format=input_format,
                 demand_account_credit=demand_acct,
                 file_name=file_name,
-                line_items=[]  # CCD+ has no line items
             )
         except Exception as e:
             logger.error(f"Error parsing ACHCCD+ chunk: {e}")
@@ -327,7 +359,7 @@ def main():
     # Get the script directory and navigate to documents folder (one directory up)
     script_dir = Path(__file__).parent
     backend_dir = script_dir.parent  # Go up one level from beta/ to backend/
-    pdf_path = backend_dir / "documents" / "Current-EDI-sample.pdf"
+    pdf_path = backend_dir / "documents" / "Mixed.pdf"
     
     if not pdf_path.exists():
         print(f"Error: PDF file not found at {pdf_path}")
@@ -337,17 +369,23 @@ def main():
     with open(pdf_path, 'rb') as f:
         pdf_bytes = f.read()
     
-    transactions = parser.parse_edi_file(pdf_bytes, pdf_path.name)
-    
+    all_transactions, chs_transactions = parser.parse_edi_file(pdf_bytes, pdf_path.name)
+    print(f"✓ Parsed {len(all_transactions)} all transactions")
+    print(f"✓ Parsed {len(chs_transactions)} CHS transactions")
     # Save to JSON in the same directory as the script
-    transactions_dict = [transaction.to_dict() for transaction in transactions]
-    output_json_path = script_dir / "transactions_beta.json"
-    
+    all_transactions_dict = [transaction.to_dict() for transaction in all_transactions]
+    chs_transactions_dict = [transaction.to_dict() for transaction in chs_transactions]
+    output_json_path = script_dir / "all_transactions_beta.json"
+    chs_output_json_path = script_dir / "chs_transactions_beta.json"
+
     with open(output_json_path, 'w', encoding='utf-8') as f:
-        json.dump(transactions_dict, f, indent=2, ensure_ascii=False)
+        json.dump(all_transactions_dict, f, indent=2, ensure_ascii=False)
     
-    print(f"✓ Parsed {len(transactions)} transaction(s)")
-    print(f"✓ Saved transactions to {output_json_path}")
+    with open(chs_output_json_path, 'w', encoding='utf-8') as f:
+        json.dump(chs_transactions_dict, f, indent=2, ensure_ascii=False)
+
+    print(f"✓ Saved all transactions to {output_json_path}")
+    print(f"✓ Saved CHS transactions to {chs_output_json_path}")
 
 if __name__ == "__main__":
     main()
