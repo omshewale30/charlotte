@@ -48,3 +48,7 @@ backend/venv/
 azure-rg-template/
 backend/reports/
 backend/remittance_summary.json
+backend/transactions_beta.json
+.gitignore
+backend/beta/transactions_beta.json
+
