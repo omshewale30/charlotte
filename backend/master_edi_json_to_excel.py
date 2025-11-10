@@ -1,4 +1,4 @@
-"""Utilities to load EDI transaction records from Azure AI Search, convert to DataFrame, analyze, and export to Excel."""
+"""Utilities to load Master EDI transaction records from Azure AI Search, convert to DataFrame, analyze, and export to Excel."""
 
 import os
 import json
@@ -11,18 +11,13 @@ import openpyxl
 from azure.azure_blob_container_client import AzureBlobContainerClient
 from azure.azure_search_setup import EDISearchService
 
-class EDIDataLoader:
+class MASTER_EDI_DataLoader:
     def __init__(self, start_date: str, end_date: str):
         self.start_date = start_date
         self.end_date = end_date
         # Initialize Azure AI Search service (preferred data source)
-        self.search_service = EDISearchService()
-        # Kept for backward compatibility but unused in search mode
-        self.connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+        self.search_service = EDISearchService(index_name="master-edi")
         
-        self.azure_blob_container_client = None
-        
-
 
     def _parse_date(self, value: str) -> date:
         """Parse YYYY-MM-DD string to date."""
@@ -60,6 +55,9 @@ class EDIDataLoader:
             "company_id_debit",
             "mutually_defined",
             "file_name",
+            "input_format",
+            "demand_account_credit",
+            "line_items",
         ]
 
         while True:
@@ -94,7 +92,24 @@ class EDIDataLoader:
 
     def to_dataframe(self, records: List[Dict]) -> pd.DataFrame:
         """Convert records to a pandas DataFrame and normalize types."""
-        df = pd.DataFrame(records or [])
+        if not records:
+            return pd.DataFrame()
+        
+        # Handle line_items: serialize complex nested structure as JSON string for DataFrame
+        processed_records = []
+        for record in records:
+            processed_record = record.copy()
+            # Convert line_items (list of dicts) to JSON string for Excel compatibility
+            if "line_items" in processed_record and processed_record["line_items"]:
+                if isinstance(processed_record["line_items"], list):
+                    processed_record["line_items"] = json.dumps(processed_record["line_items"])
+                elif processed_record["line_items"] is None:
+                    processed_record["line_items"] = ""
+            else:
+                processed_record["line_items"] = ""
+            processed_records.append(processed_record)
+        
+        df = pd.DataFrame(processed_records)
         if df.empty:
             return df
 
@@ -103,6 +118,17 @@ class EDIDataLoader:
             df["effective_date"] = pd.to_datetime(df["effective_date"], errors="coerce").dt.date
         if "amount" in df.columns:
             df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
+        
+        # Ensure all expected columns exist (fill missing with empty strings)
+        expected_columns = [
+            "trace_number", "amount", "effective_date", "originator", "receiver",
+            "page_number", "routing_id_credit", "routing_id_debit", "company_id_debit",
+            "mutually_defined", "file_name", "input_format", "demand_account_credit", "line_items"
+        ]
+        for col in expected_columns:
+            if col not in df.columns:
+                df[col] = ""
+        
         return df
 
 
@@ -133,6 +159,12 @@ class EDIDataLoader:
                 .reset_index()
                 .rename(columns={"amount": "sum_amount"})
             )
+            # Convert date objects to strings for JSON serialization
+            if not daily.empty and daily["effective_date"].dtype == "object":
+                # Check if it's a date type and convert to string
+                daily["effective_date"] = daily["effective_date"].apply(
+                    lambda x: x.strftime("%Y-%m-%d") if hasattr(x, 'strftime') else str(x) if pd.notna(x) else ""
+                )
         else:
             daily = pd.DataFrame()
 
@@ -174,33 +206,57 @@ class EDIDataLoader:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-            (df if not df.empty else pd.DataFrame()).to_excel(writer, index=False, sheet_name="raw")
+            # Export raw data
+            if not df.empty:
+                # Reorder columns for better readability
+                column_order = [
+                    "trace_number", "amount", "effective_date", "originator", "receiver",
+                    "input_format", "file_name", "page_number", 
+                    "routing_id_credit", "demand_account_credit", "routing_id_debit", 
+                    "company_id_debit", "mutually_defined", "line_items"
+                ]
+                # Only include columns that exist in the dataframe
+                available_columns = [col for col in column_order if col in df.columns]
+                # Add any remaining columns
+                remaining_columns = [col for col in df.columns if col not in available_columns]
+                final_columns = available_columns + remaining_columns
+                df[final_columns].to_excel(writer, index=False, sheet_name="raw")
+            else:
+                pd.DataFrame().to_excel(writer, index=False, sheet_name="raw")
+            
+            # Export analysis sheets
             for name, adf in analyses.items():
-                (adf if not adf.empty else pd.DataFrame()).to_excel(writer, index=False, sheet_name=name[:31])
+                sheet_name = name[:31]  # Excel sheet name limit
+                if not adf.empty:
+                    adf.to_excel(writer, index=False, sheet_name=sheet_name)
+                else:
+                    pd.DataFrame().to_excel(writer, index=False, sheet_name=sheet_name)
+        
         return str(output_path)
 
 
     def _default_output_path(self, start_date: str, end_date: str) -> str:
         backend_dir = Path(__file__).resolve().parent
-        fname = f"edi_export_{start_date}_to_{end_date}.xlsx"
+        fname = f"master_edi_export_{start_date}_to_{end_date}.xlsx"
         return str(backend_dir / "processed_data" / fname)
 
 
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Load EDI JSON from Azure, analyze, and export to Excel")
+    parser = argparse.ArgumentParser(description="Load Master EDI JSON from Azure, analyze, and export to Excel")
     parser.add_argument("--start", required=True, help="Start date YYYY-MM-DD")
     parser.add_argument("--end", required=True, help="End date YYYY-MM-DD")
     parser.add_argument("--out", default=None, help="Optional Excel output path")
     args = parser.parse_args()
 
-    records = EDIDataLoader(args.start, args.end)._load_search_records(args.start, args.end)
-    df = EDIDataLoader(args.start, args.end).to_dataframe(records)
-    analyses = EDIDataLoader(args.start, args.end).analyze(df)
+    loader = MASTER_EDI_DataLoader(args.start, args.end)
+    records = loader._load_search_records(args.start, args.end)
+    df = loader.to_dataframe(records)
+    analyses = loader.analyze(df)
 
-    excel_path = args.out or EDIDataLoader(args.start, args.end)._default_output_path(args.start, args.end)
-    path = EDIDataLoader(args.start, args.end).export_to_excel(df, analyses, excel_path)
+    excel_path = args.out or loader._default_output_path(args.start, args.end)
+    path = loader.export_to_excel(df, analyses, excel_path)
     print(f"Exported Excel to: {path}")
     print(f"Rows exported: {len(df)}")
 

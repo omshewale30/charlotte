@@ -19,7 +19,8 @@ from auth import get_current_user, require_unc_email, get_optional_user
 from azure.azure_blob_container_client import AzureBlobContainerClient
 from azure.azure_client import AzureClient
 from edi_search_integration import EDISearchIntegration
-from edi_json_to_excel import EDIDataLoader
+from chs_edi_json_to_excel import CHS_EDI_DataLoader
+from master_edi_json_to_excel import MASTER_EDI_DataLoader
 from align_rx_json_to_excel import AlignRxDataLoader
 from alignRx_parser import AlignRxParser, DuplicateReportError as AlignRxDuplicateReportError
 from concurrent.futures import ThreadPoolExecutor
@@ -100,6 +101,7 @@ class EDIResponse(BaseModel):
 class EDIAnalysisRequest(BaseModel):
     start: str  # YYYY-MM-DD
     end: str    # YYYY-MM-DD
+    mode: str
 
 
 @asynccontextmanager
@@ -304,10 +306,14 @@ async def query_edi_transactions(query: EDIQuery, user: Dict = Depends(require_u
 
 
 @app.post("/api/edi/analyze")
-async def analyze_edi_range(request: EDIAnalysisRequest, user: Dict = Depends(require_unc_email)):
+async def analyze_edi_range(request: EDIAnalysisRequest,user: Dict = Depends(require_unc_email)):
     """Analyze EDI transactions between start and end dates (YYYY-MM-DD)."""
     try:
-        loader = EDIDataLoader(request.start, request.end)
+        if request.mode == "master":
+            loader = MASTER_EDI_DataLoader(request.start, request.end)
+        else:
+            loader = CHS_EDI_DataLoader(request.start, request.end)
+
         records = loader.load_edi_json(request.start, request.end)
         df = loader.to_dataframe(records)
         analyses = loader.analyze(df)
@@ -318,7 +324,7 @@ async def analyze_edi_range(request: EDIAnalysisRequest, user: Dict = Depends(re
                 return []
             # Convert to dict first, then replace NaN values with None for JSON serialization
             records = d.to_dict(orient="records")
-            # Clean NaN values from the records
+            # Clean NaN values and convert date objects to strings
             cleaned_records = []
             for record in records:
                 cleaned_record = {}
@@ -326,6 +332,9 @@ async def analyze_edi_range(request: EDIAnalysisRequest, user: Dict = Depends(re
                     # Check if value is NaN using pandas isna (handles all NaN types)
                     if pd.isna(value):
                         cleaned_record[key] = None
+                    # Convert date objects to strings (YYYY-MM-DD format)
+                    elif hasattr(value, 'strftime'):
+                        cleaned_record[key] = value.strftime("%Y-%m-%d")
                     else:
                         cleaned_record[key] = value
                 cleaned_records.append(cleaned_record)
@@ -364,7 +373,7 @@ async def analyze_alignrx_range(request: EDIAnalysisRequest, user: Dict = Depend
                 return []
             # Convert to dict first, then replace NaN values with None for JSON serialization
             records = d.to_dict(orient="records")
-            # Clean NaN values from the records
+            # Clean NaN values and convert date objects to strings
             cleaned_records = []
             for record in records:
                 cleaned_record = {}
@@ -372,6 +381,9 @@ async def analyze_alignrx_range(request: EDIAnalysisRequest, user: Dict = Depend
                     # Check if value is NaN using pandas isna (handles all NaN types)
                     if pd.isna(value):
                         cleaned_record[key] = None
+                    # Convert date objects to strings (YYYY-MM-DD format)
+                    elif hasattr(value, 'strftime'):
+                        cleaned_record[key] = value.strftime("%Y-%m-%d")
                     else:
                         cleaned_record[key] = value
                 cleaned_records.append(cleaned_record)
@@ -422,7 +434,11 @@ async def export_alignrx_range(request: EDIAnalysisRequest, user: Dict = Depends
 async def export_edi_range(request: EDIAnalysisRequest, user: Dict = Depends(require_unc_email)):
     """Export EDI transactions between start and end dates to Excel and stream the file."""
     try:
-        loader = EDIDataLoader(request.start, request.end)
+        if request.mode == "master":
+            loader = MASTER_EDI_DataLoader(request.start, request.end)
+        else:
+            loader = CHS_EDI_DataLoader(request.start, request.end)
+            
         records = loader.load_edi_json(request.start, request.end)
         df = loader.to_dataframe(records)
         analyses = loader.analyze(df)

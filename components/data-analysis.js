@@ -1,5 +1,8 @@
 /**
- * Data Analysis component for the application
+ * Data Analysis component for the application 
+ * user can toggle between Master EDI and CHS EDI data
+ * Master EDI data is the default data
+ * CHS EDI data is the data that is used for the CHS department
  * Contains the logic for the data analysis page
  * Includes visualizations, tables, and Excel export functionality
  * Uses the APIClient to fetch data from the backend
@@ -14,6 +17,7 @@ import { SendIcon, Loader2, Menu, RefreshCw } from "lucide-react";
 import { APIClient } from "@/lib/api-client";
 import { useAuth } from "@/components/auth-context-msal";
 import { azureCosmosClient } from "@/lib/azure-cosmos-client";
+import DataAnalysisToggle from "@/components/ui/data-analysis-toggle";
 import {
     ResponsiveContainer,
     BarChart,
@@ -39,8 +43,9 @@ export default function DataAnalysis() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [result, setResult] = useState(null);
-    const [updateStatus, setUpdateStatus] = useState(null);
-    const [isUpdatingIndex, setIsUpdatingIndex] = useState(false);
+    const [dataAnalysisMode, setDataAnalysisMode] = useState("master");
+
+
     const formatCurrency = (value) => {
         if (value === null || value === undefined || isNaN(Number(value))) return "-";
         return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(Number(value));
@@ -59,7 +64,7 @@ export default function DataAnalysis() {
         setLoading(true);
         setError(null);
         try {
-            const data = await apiClient.analyzeEdiRange({ start: startDate, end: endDate });
+            const data = await apiClient.analyzeEdiRange({ start: startDate, end: endDate, mode: dataAnalysisMode });
             setResult(data);
         } catch (e) {
             setError(e.message || "Failed to load analysis");
@@ -101,11 +106,11 @@ export default function DataAnalysis() {
         }
         setError(null);
         try {
-            const blob = await apiClient.downloadEdiExcel({ start: startDate, end: endDate });
+            const blob = await apiClient.downloadEdiExcel({ start: startDate, end: endDate, mode: dataAnalysisMode });
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `edi_export_${startDate}_to_${endDate}.xlsx`;
+            a.download = `${dataAnalysisMode}_edi_export_${startDate}_to_${endDate}.xlsx`;
             document.body.appendChild(a);
             a.click();
             a.remove();
@@ -118,6 +123,11 @@ export default function DataAnalysis() {
     return (
         <div className="max-w-5xl mx-auto p-6 space-y-6">
             <h1 className="text-2xl font-semibold">Data Analysis</h1>
+            
+            <div className="flex items-center gap-4">
+                <label className="text-sm text-muted-foreground">Data Source:</label>
+                <DataAnalysisToggle value={dataAnalysisMode} onChange={setDataAnalysisMode} />
+            </div>
         
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                 <div className="flex flex-col gap-2">
