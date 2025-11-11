@@ -793,8 +793,18 @@ async def upload_edi_report(
         chs_duplicate = parse_result.get("chs_duplicate", False)
 
         # Upload to Azure Blob Storage (after successful parsing and duplicate check)
+        sample_transaction = all_transactions[0]
+        sum_amount = sum(transaction.get("amount", 0) for transaction in all_transactions)
+        metadata = {
+            "effective_date": sample_transaction.get("effective_date", ""),
+            "total_amount": sum_amount
+        }
+        # Azure Blob Storage only allows metadata values as strings.
+        # Ensure all metadata values are string type.
+        str_metadata = {k: str(v) for k, v in metadata.items()}
         blob_client.upload_blob(blob_name, file_content, overwrite=False)
-        logger.info(f"File uploaded to blob storage: {blob_name}")
+        blob_client.set_blob_metadata(blob_name, str_metadata)
+        logger.info(f"File uploaded to blob storage: {blob_name} with metadata: {metadata}")
 
         # Index transactions in search index
         # Skip CHS indexing if trace numbers are duplicates, but still index all_transactions

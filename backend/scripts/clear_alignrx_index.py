@@ -23,6 +23,7 @@ sys.path.insert(0, str(backend_dir))
 from dotenv import load_dotenv
 from azure.azure_alignRx_search_setup import AlignRxSearchService
 import logging
+from azure.azure_search_setup import EDISearchService
 
 # Load environment variables
 load_dotenv(dotenv_path=backend_dir / ".env")
@@ -46,7 +47,7 @@ def main():
     # Verify environment variables
     endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
     api_key = os.getenv("AZURE_SEARCH_API_KEY")
-    index_name = os.getenv("AZURE_ALIGN_RX_SEARCH_INDEX_NAME", "alignrx-reports")
+    index_name = os.getenv("master-edi")
     
     if not endpoint or not api_key:
         print("ERROR: Missing required environment variables!")
@@ -74,7 +75,7 @@ def main():
     
     try:
         # Initialize the search service
-        search_service = AlignRxSearchService()
+        search_service = EDISearchService(index_name="master-edi")
         
         # Get statistics before deletion
         stats = search_service.get_statistics()

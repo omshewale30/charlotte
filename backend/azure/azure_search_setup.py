@@ -162,4 +162,109 @@ class EDISearchService:
             logger.error(f"Error checking if trace numbers exist: {e}")
             return False
 
+    def clear_all_documents(self) -> Dict:
+        """
+        Delete all documents from the search index.
+        
+        This method retrieves all document IDs from the index and deletes them in batches.
+        The key field for EDI transactions is "id".
+        
+        Returns:
+            Dict with success status and count of deleted documents:
+            {
+                "success": bool,
+                "deleted_count": int,
+                "total_before": int,
+                "message": str,
+                "error": str (only if success is False)
+            }
+        """
+        try:
+            # Get total count first
+            count_result = self.search_client.search(
+                search_text="*",
+                include_total_count=True,
+                top=0
+            )
+            total_before = count_result.get_count()
+            
+            if total_before == 0:
+                logger.info(f"Index '{self.index_name}' is already empty")
+                return {
+                    "success": True,
+                    "deleted_count": 0,
+                    "total_before": 0,
+                    "message": f"Index '{self.index_name}' is already empty"
+                }
+            
+            logger.info(f"Found {total_before} documents to delete from index '{self.index_name}'")
+            
+            # Retrieve all document IDs (using "id" as the key field for EDI transactions)
+            # We'll fetch in batches to avoid memory issues
+            all_doc_ids = []
+            batch_size = 1000
+            skip = 0
+            
+            # Search for all documents, selecting only the key field ("id")
+            # Azure Search delete_documents expects documents with the key field matching the schema
+            while True:
+                results = self.search_client.search(
+                    search_text="*",
+                    select=["id"],  # EDI transactions use "id" as the key field
+                    top=batch_size,
+                    skip=skip
+                )
+                
+                batch_ids = []
+                for doc in results:
+                    if "id" in doc:
+                        all_doc_ids.append({"id": doc["id"]})
+                        batch_ids.append(doc["id"])
+                
+                if len(batch_ids) < batch_size:
+                    break
+                skip += batch_size
+            
+            if not all_doc_ids:
+                logger.warning("No document IDs found to delete")
+                return {
+                    "success": True,
+                    "deleted_count": 0,
+                    "total_before": total_before,
+                    "message": "No documents found to delete"
+                }
+            
+            logger.info(f"Retrieved {len(all_doc_ids)} document IDs for deletion")
+            
+            # Delete documents in batches
+            total_deleted = 0
+            for i in range(0, len(all_doc_ids), batch_size):
+                batch = all_doc_ids[i:i + batch_size]
+                try:
+                    result = self.search_client.delete_documents(documents=batch)
+                    successful = sum(1 for r in result if r.succeeded)
+                    total_deleted += successful
+                    logger.info(f"Deleted batch {i//batch_size + 1}: {successful}/{len(batch)} documents")
+                except Exception as batch_error:
+                    logger.error(f"Error deleting batch {i//batch_size + 1}: {batch_error}")
+            
+            logger.info(f"Total documents deleted: {total_deleted}/{len(all_doc_ids)} from index '{self.index_name}'")
+            
+            return {
+                "success": True,
+                "deleted_count": total_deleted,
+                "total_before": total_before,
+                "message": f"Successfully deleted {total_deleted} documents from index '{self.index_name}'"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error clearing index '{self.index_name}': {e}")
+            return {
+                "success": False,
+                "deleted_count": 0,
+                "total_before": 0,
+                "error": str(e),
+                "message": f"Failed to clear index '{self.index_name}': {e}"
+            }
+
 
