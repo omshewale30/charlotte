@@ -164,10 +164,12 @@ class EDISearchService:
             for r in result:
                 trace_num = r.get("trace_number")
                 indexed_amount = r.get("amount")
-                expected_amount = trace_numbers.get(trace_num)
+                expected_amount = trace_numbers.get(trace_num)[0]
+                expected_date = trace_numbers.get(trace_num)[1]
+                indexed_date = r.get("effective_date")
                 
                 # If trace number exists and amount matches, return True
-                if trace_num in trace_numbers and indexed_amount == expected_amount:
+                if trace_num in trace_numbers and indexed_amount == expected_amount and indexed_date == expected_date:
                     return True
                 
             return False
@@ -279,6 +281,81 @@ class EDISearchService:
                 "total_before": 0,
                 "error": str(e),
                 "message": f"Failed to clear index '{self.index_name}': {e}"
+            }
+    
+    def delete_documents_by_trace_numbers(self, trace_numbers: Dict[str, List]) -> Dict:
+        """
+        Delete documents from the search index by trace numbers, amount, and effective_date combination.
+        
+        Args:
+            trace_numbers: Dictionary where keys are trace numbers (str) and values are [amount (float), effective_date (str)]
+        
+        Returns:
+            Dict with success status and count of deleted documents
+        """
+        if not trace_numbers:
+            return {
+                "success": False,
+                "deleted_count": 0,
+                "message": "No trace numbers provided"
+            }
+        
+        deleted_count = 0
+        documents_to_delete = []
+        
+        try:
+            # Build filter expression to find documents with matching trace numbers
+            trace_number_list = [str(tn) for tn in trace_numbers.keys()]
+            values_str = ",".join(trace_number_list)
+            filter_expr = f"search.in(trace_number, '{values_str}', ',')"
+            
+            # Search for documents with matching trace numbers
+            search_results = self.search_client.search(
+                search_text="",  # Empty search text, using filter only
+                filter=filter_expr,
+                top=len(trace_numbers) * 10  # Get enough results to check all combinations
+            )
+            
+            # Collect documents that match trace_number, amount, AND effective_date
+            for doc in search_results:
+                trace_num = doc.get("trace_number")
+                if trace_num in trace_numbers:
+                    expected_amount = trace_numbers[trace_num][0]
+                    expected_date = trace_numbers[trace_num][1]
+                    indexed_amount = doc.get("amount")
+                    indexed_date = doc.get("effective_date")
+                    
+                    # Only delete if all three match: trace_number, amount, AND effective_date
+                    if indexed_amount == expected_amount and indexed_date == expected_date:
+                        documents_to_delete.append({"id": doc.get("id")})
+            
+            # Delete documents in batches
+            if documents_to_delete:
+                batch_size = 1000
+                for i in range(0, len(documents_to_delete), batch_size):
+                    batch = documents_to_delete[i:i + batch_size]
+                    delete_results = self.search_client.delete_documents(documents=batch)
+                    
+                    # Count successful deletions
+                    for result in delete_results:
+                        if result.succeeded:
+                            deleted_count += 1
+                        else:
+                            logger.warning(f"Failed to delete document {result.key}: {result.error_message}")
+            
+            return {
+                "success": True,
+                "deleted_count": deleted_count,
+                "message": f"Successfully deleted {deleted_count} documents matching trace_number, amount, and effective_date combinations"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error deleting documents by trace numbers: {e}")
+            return {
+                "success": False,
+                "deleted_count": deleted_count,
+                "error": str(e),
+                "message": f"Failed to delete documents by trace numbers: {e}"
             }
 
 

@@ -11,7 +11,7 @@ import json
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
+#TODO: process the one CHS file which has OCR issues and check if the parser works
 CHS_ORIGINATORS = { 
 "BCBS of NC",
 "BCBS-NC",
@@ -58,7 +58,7 @@ class EDITransactionLineItem:
 @dataclass
 class EDITransaction:
     """
-    Unified data class for EDI transactions (handles both ACHCCD+ and ACHCTX).
+    Unified data class for EDI transactions (handles ACHCCD+, ACHPPD+, and ACHCTX).
     """
     # Core fields
     trace_number: str
@@ -106,7 +106,7 @@ class EDITransactionExtractor:
     """
     Extracts transaction data from EDI PDF reports.
     
-    Handles both ACHCCD+ (Current-EDI-sample) and ACHCTX (Master-EDI-sample)
+    Handles ACHCCD+ (Current-EDI-sample), ACHPPD+, and ACHCTX (Master-EDI-sample)
     formats by splitting by 'PAYMENT INFORMATION:' rather than by page.
     """
     
@@ -115,12 +115,13 @@ class EDITransactionExtractor:
         self.patterns = {
             # --- Universal Patterns ---
             'payment_split': r'PAYMENT INFORMATION:',
-            'credit_amount': r'CREDIT:\s*\$?([\d,]+\.?\d*)',
+            'credit_amount': r'CREDIT:\s*\$?([\d,]+\.?\d*|\.\d+)',  # Handles both "123.45" and ".00" formats
             'effective_date': r'EFFECTIVE DATE:\s*(\d{2}/\d{2}/\d{4})',
             'input_format': r'INPUT FORMAT:\s*([A-Z0-9+]+)',
             'page_number': r'PAGE:\s*(\d+)',
             'routing_id': r'ROUTING ID:\s*(\d+)',
             'demand_acct': r'DEMAND ACCT:\s*(\d+)',
+            'acct': r'ACCT:\s*(\d+)',  # Used in ACHPPD+ format (alternative to DEMAND ACCT)
             'company_id': r'COMPANY ID:\s*([A-Za-z0-9]+)',
             'originator': r'ORIGINATOR:\s*([^\n]+)', # Grabs the first line
             'receiver': r'RECEIVER:\s*([^\n]+)',   # Grabs the first line
@@ -135,7 +136,7 @@ class EDITransactionExtractor:
             'trace_number_ctx': r'TRACE NUMBER:\s*(\d+)', # The first, simpler trace number
             'details_block': r'DETAILS:(.*?)(?:PAYMENT INFORMATION:|$)',
             'line_item_split': r'LINE:\s*(\d{5})',
-            'line_invoice_num': r'SELLER INVOICE NUM:\s*(.*?)\n',
+            'line_invoice_num': r'(?:SELLER INVOICE NUM|CM):\s*(.*?)\n',  # Handles both "SELLER INVOICE NUM:" and "CM:"
             'line_amount_paid': r'AMOUNT PAID:\s*(.*?)\n',
             'line_invoice_amount': r'TOTAL INV AMOUNT:\s*(.*?)\n'
         }
@@ -146,11 +147,20 @@ class EDITransactionExtractor:
         return match.group(1).strip() if match else ""
 
     def _clean_amount(self, amount_str: str) -> float:
-        """Converts a formatted string amount to a float."""
+        """Converts a formatted string amount to a float.
+        Handles formats like: '$1,234.56', '1234.56', '$1234.56-', '.00', etc.
+        Trailing hyphens indicate negative amounts.
+        """
         if not amount_str:
             return 0.0
         try:
-            return float(amount_str.replace('$', '').replace(',', ''))
+            # Remove $ and commas, then check for trailing hyphen (negative amount)
+            cleaned = amount_str.replace('$', '').replace(',', '').strip()
+            is_negative = cleaned.endswith('-')
+            if is_negative:
+                cleaned = cleaned.rstrip('-').strip()
+            amount = float(cleaned)
+            return -amount if is_negative else amount
         except ValueError:
             return 0.0
 
@@ -187,8 +197,6 @@ class EDITransactionExtractor:
         if not full_text:
             return []
 
-        # TODO:make the list a dictionary of trace number: amount"
-
         all_transactions = []
         all_trace_numbers = {}
         chs_transactions = []
@@ -203,6 +211,9 @@ class EDITransactionExtractor:
             
             if input_format == 'ACHCCD+' or input_format == 'ACHCCD':
                 transaction = self._parse_ccd_chunk(chunk, file_name)
+            elif input_format == 'ACHPPD+':
+                # ACHPPD+ uses similar structure to ACHCCD+ but with "ACCT" instead of "DEMAND ACCT"
+                transaction = self._parse_ppd_chunk(chunk, file_name)
             elif input_format == 'ACHCTX':
                 transaction = self._parse_ctx_chunk(chunk, file_name)
             else:
@@ -211,13 +222,13 @@ class EDITransactionExtractor:
                 
             if transaction:
                 all_transactions.append(transaction)
-                all_trace_numbers[transaction.trace_number] = transaction.amount
+                all_trace_numbers[transaction.trace_number] = [transaction.amount, transaction.effective_date]
             if transaction and transaction.originator in CHS_ORIGINATORS:
                 #delete the 'line_items' from the transaction
                 transaction.line_items = []
 
                 chs_transactions.append(transaction)
-                chs_trace_numbers[transaction.trace_number] = transaction.amount
+                chs_trace_numbers[transaction.trace_number] = [transaction.amount, transaction.effective_date]
     
         return all_transactions, chs_transactions, all_trace_numbers, chs_trace_numbers
 
@@ -267,6 +278,59 @@ class EDITransactionExtractor:
             )
         except Exception as e:
             logger.error(f"Error parsing ACHCCD+ chunk: {e}")
+            return None
+
+    def _parse_ppd_chunk(self, chunk: str, file_name: str) -> Optional[EDITransaction]:
+        """Parses a payment chunk identified as ACHPPD+ format.
+        Similar to ACHCCD+ but uses 'ACCT' instead of 'DEMAND ACCT'.
+        """
+        try:
+            amount_str = self._search('credit_amount', chunk)
+            if not amount_str:
+                return None  # Not a valid transaction
+
+            amount = self._clean_amount(amount_str)
+            effective_date = self._format_date(self._search('effective_date', chunk))
+            page_number = self._search('page_number', chunk)
+            
+            # In PPD+, routing IDs are sequential. Credit is first, Debit is second.
+            routing_ids = re.findall(self.patterns['routing_id'], chunk)
+            routing_id_credit = routing_ids[0] if len(routing_ids) > 0 else ""
+            routing_id_debit = routing_ids[1] if len(routing_ids) > 1 else ""
+            
+            # ACHPPD+ uses "ACCT" instead of "DEMAND ACCT" for the credit party
+            # Try ACCT first, fall back to DEMAND ACCT if not found
+            demand_acct = self._search('acct', chunk)
+            if not demand_acct:
+                demand_acct = self._search('demand_acct', chunk)
+            
+            # Company ID is for the debit party
+            company_ids = re.findall(self.patterns['company_id'], chunk)
+            company_id_debit = company_ids[1] if len(company_ids) > 1 else (company_ids[0] if company_ids else "")
+            
+            trace_number = self._search('trace_number_ccd', chunk)
+            receiver = self._search('receiver', chunk)
+            originator = self._search('originator', chunk)
+            mutually_defined = self._search('mutually_defined', chunk)
+            input_format = self._search('input_format', chunk)
+
+            return EDITransaction(
+                trace_number=trace_number,
+                amount=amount,
+                effective_date=effective_date,
+                receiver=receiver.replace('MUTUALLY DEFINED:', '').strip(),
+                originator=originator,
+                page_number=page_number,
+                routing_id_credit=routing_id_credit,
+                routing_id_debit=routing_id_debit,
+                company_id_debit=company_id_debit,
+                mutually_defined=mutually_defined,
+                input_format=input_format,
+                demand_account_credit=demand_acct,
+                file_name=file_name,
+            )
+        except Exception as e:
+            logger.error(f"Error parsing ACHPPD+ chunk: {e}")
             return None
 
     def _parse_ctx_chunk(self, chunk: str, file_name: str) -> Optional[EDITransaction]:
