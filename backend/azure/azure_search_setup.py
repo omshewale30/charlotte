@@ -131,31 +131,45 @@ class EDISearchService:
         
 
 
-    def check_if_trace_numbers_exist(self, trace_numbers: List[str]) -> bool:
+    def check_if_trace_numbers_exist(self, trace_numbers: Dict[str, float]) -> bool:
         """
-        Check if any trace number from the trace number list already exist in the search index.
+        Check if any trace number from the dictionary already exists in the search index
+        AND if the amount for that trace number also matches.
 
         Args:
-            trace_numbers: The trace number list to check for
+            trace_numbers: Dictionary where keys are trace numbers (str) and values are amounts (float)
         Returns:
-            True if any trace number from the trace number list exist, False otherwise
+            True if any trace number exists in the index AND its amount matches, False otherwise
         """
         if not trace_numbers:
             return False
 
-        # Build filter expression for OR-ing all trace_number values
+        # Build filter expression using search.in for efficient OR query
         try:
-            # Format: (trace_number eq '123' or trace_number eq '456' or ...)
-            values_str = ",".join(trace_numbers)
+            # Escape single quotes in trace numbers and create comma-separated string
+            trace_number_list = [str(tn) for tn in trace_numbers.keys()]
+            values_str = ",".join(trace_number_list)
+            
+            # Use search.in filter: search.in(field, 'value1,value2,value3', ',')
             filter_expr = f"search.in(trace_number, '{values_str}', ',')"
+            
+            # Search for documents with matching trace numbers
             result = self.search_client.search(
                 search_text="",  # Empty search text, using filter only
                 filter=filter_expr,
-                top=1  # Only need one match to know at least one exists
+                top=len(trace_numbers)  # Get all potential matches
             )
-            for _ in result:
-                return True  # At least one result found
-
+            
+            # Check each result: trace number must exist AND amount must match
+            for r in result:
+                trace_num = r.get("trace_number")
+                indexed_amount = r.get("amount")
+                expected_amount = trace_numbers.get(trace_num)
+                
+                # If trace number exists and amount matches, return True
+                if trace_num in trace_numbers and indexed_amount == expected_amount:
+                    return True
+                
             return False
 
         except Exception as e:

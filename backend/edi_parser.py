@@ -80,7 +80,7 @@ class EDIParser:
                 pdf_bytes = f.read()
             
 
-            all_transactions, chs_transactions, chs_trace_numbers, all_trace_numbers = self.extractor.parse_edi_file(pdf_bytes, filename)
+            all_transactions, chs_transactions, all_trace_numbers, chs_trace_numbers = self.extractor.parse_edi_file(pdf_bytes, filename)
             if not all_transactions:
                 raise ValueError(f"No all transactions found in {filename}")
 

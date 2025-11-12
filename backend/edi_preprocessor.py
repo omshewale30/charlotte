@@ -178,7 +178,7 @@ class EDITransactionExtractor:
             logger.error(f"Error reading PDF from bytes: {e}")
             return ""
 
-    def parse_edi_file(self, pdf_bytes: bytes, file_name: str) -> Tuple[List[EDITransaction], List[EDITransaction], List[str]]:
+    def parse_edi_file(self, pdf_bytes: bytes, file_name: str) -> Tuple[List[EDITransaction], List[EDITransaction], Dict[str, float], Dict[str, float]]:
         """
         Main parsing function. Splits file by payment and routes to correct parser.
         Returns a tuple of lists: (all transactions, CHS transactions)
@@ -187,10 +187,12 @@ class EDITransactionExtractor:
         if not full_text:
             return []
 
+        # TODO:make the list a dictionary of trace number: amount"
+
         all_transactions = []
-        all_trace_numbers = []
+        all_trace_numbers = {}
         chs_transactions = []
-        chs_trace_numbers = []
+        chs_trace_numbers = {}
         
         # Split the entire document by "PAYMENT INFORMATION:"
         # This correctly groups multi-page transactions.
@@ -209,15 +211,15 @@ class EDITransactionExtractor:
                 
             if transaction:
                 all_transactions.append(transaction)
-                all_trace_numbers.append(transaction.trace_number)
+                all_trace_numbers[transaction.trace_number] = transaction.amount
             if transaction and transaction.originator in CHS_ORIGINATORS:
                 #delete the 'line_items' from the transaction
                 transaction.line_items = []
 
                 chs_transactions.append(transaction)
-                chs_trace_numbers.append(transaction.trace_number)
+                chs_trace_numbers[transaction.trace_number] = transaction.amount
     
-        return all_transactions, chs_transactions, chs_trace_numbers, all_trace_numbers
+        return all_transactions, chs_transactions, all_trace_numbers, chs_trace_numbers
 
     def _parse_ccd_chunk(self, chunk: str, file_name: str) -> Optional[EDITransaction]:
         """Parses a payment chunk identified as ACHCCD+ (Current-EDI-sample format)."""
@@ -372,7 +374,7 @@ def main():
     with open(pdf_path, 'rb') as f:
         pdf_bytes = f.read()
     
-    all_transactions, chs_transactions, chs_trace_numbers, all_trace_numbers = parser.parse_edi_file(pdf_bytes, pdf_path.name)
+    all_transactions, chs_transactions, all_trace_numbers, chs_trace_numbers = parser.parse_edi_file(pdf_bytes, pdf_path.name)
     print(f"✓ Parsed {len(all_transactions)} all transactions")
     print(f"✓ Parsed {len(chs_transactions)} CHS transactions")
     # Save to JSON in the same directory as the script

@@ -806,7 +806,8 @@ async def upload_edi_report(
         sum_amount = sum(transaction.get("amount", 0) for transaction in all_transactions)
         metadata = {
             "effective_date": sample_transaction.get("effective_date", ""),
-            "total_amount": sum_amount
+            "total_amount": sum_amount,
+            "uploaded_by": user.get('email', 'unknown') if user and isinstance(user, dict) else 'unknown'
         }
         # Azure Blob Storage only allows metadata values as strings.
         # Ensure all metadata values are string type.
