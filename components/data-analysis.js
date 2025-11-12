@@ -44,6 +44,7 @@ export default function DataAnalysis() {
     const [error, setError] = useState(null);
     const [result, setResult] = useState(null);
     const [dataAnalysisMode, setDataAnalysisMode] = useState("master");
+    const year = new Date().getFullYear();
 
 
     const formatCurrency = (value) => {
@@ -119,6 +120,10 @@ export default function DataAnalysis() {
             setError(e.message || "Failed to download Excel");
         }
     };
+    const handleFinancialYear = (year) => {
+        setStartDate(new Date(`${year}-07-01`).toISOString().split('T')[0]);
+        setEndDate(new Date(`${year + 1}-06-30`).toISOString().split('T')[0]);
+    };
 
     return (
         <div className="max-w-5xl mx-auto p-6 space-y-6">
@@ -127,6 +132,14 @@ export default function DataAnalysis() {
             <div className="flex items-center gap-4">
                 <label className="text-sm text-muted-foreground">Data Source:</label>
                 <DataAnalysisToggle value={dataAnalysisMode} onChange={setDataAnalysisMode} />
+            </div>
+
+            {/* TODO Quick Actions */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                <Button onClick={() => handleFinancialYear(year - 2)}>FY{String(year - 2).slice(-2)}-{String(year - 1).slice(-2)}</Button>
+                <Button onClick={() => handleFinancialYear(year - 1)}>FY{String(year - 1).slice(-2)}-{String(year).slice(-2)}</Button>
+                <Button onClick={() => handleFinancialYear(year)}>FY{String(year).slice(-2)}-{String(year + 1).slice(-2)}</Button>
+                <Button onClick={() => handleFinancialYear(year + 1)}>FY{String(year + 1).slice(-2)}-{String(year + 2).slice(-2)}</Button>
             </div>
         
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
