@@ -10,13 +10,11 @@
  */
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { cn } from "@/lib/utils";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { SendIcon, Loader2, Menu, RefreshCw } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 import { APIClient } from "@/lib/api-client";
 import { useAuth } from "@/components/auth-context-msal";
-import { azureCosmosClient } from "@/lib/azure-cosmos-client";
 import DataAnalysisToggle from "@/components/ui/data-analysis-toggle";
 import {
     ResponsiveContainer,
@@ -32,6 +30,7 @@ import {
     Legend
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import AIOverviewCard from "@/components/ui/ai-overview";
 
 
 export default function DataAnalysis() {
@@ -41,6 +40,7 @@ export default function DataAnalysis() {
     const [startDate, setStartDate] = useState("");
     const [endDate, setEndDate] = useState("");
     const [loading, setLoading] = useState(false);
+    const [aiOverviewLoading, setAiOverviewLoading] = useState(false);
     const [error, setError] = useState(null);
     const [result, setResult] = useState(null);
     const [dataAnalysisMode, setDataAnalysisMode] = useState("master");
@@ -63,12 +63,16 @@ export default function DataAnalysis() {
             return;
         }
         setLoading(true);
+        setAiOverviewLoading(true);
         setError(null);
         try {
             const data = await apiClient.analyzeEdiRange({ start: startDate, end: endDate, mode: dataAnalysisMode });
             setResult(data);
+            // AI overview is included in the response, so stop loading
+            setAiOverviewLoading(false);
         } catch (e) {
             setError(e.message || "Failed to load analysis");
+            setAiOverviewLoading(false);
         } finally {
             setLoading(false);
         }
@@ -134,7 +138,7 @@ export default function DataAnalysis() {
                 <DataAnalysisToggle value={dataAnalysisMode} onChange={setDataAnalysisMode} />
             </div>
 
-            {/* TODO Quick Actions */}
+            
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                 <Button onClick={() => handleFinancialYear(year - 2)}>FY{String(year - 2).slice(-2)}-{String(year - 1).slice(-2)}</Button>
                 <Button onClick={() => handleFinancialYear(year - 1)}>FY{String(year - 1).slice(-2)}-{String(year).slice(-2)}</Button>
@@ -200,6 +204,19 @@ export default function DataAnalysis() {
                             </div>
                         );
                     })()}
+
+                    {/* AI Overview */}
+                    {(result.analyses?.ai_overview || aiOverviewLoading) && (
+                        <Card className="border border-slate-200/60 overflow-hidden">
+                            <CardContent className="p-0">
+                                {aiOverviewLoading ? (
+                                    <AILoadingState />
+                                ) : (
+                                    <AIOverviewCard text={result.analyses?.ai_overview} />
+                                )}
+                            </CardContent>
+                        </Card>
+                    )}
                     {/* Charts */}
                     {(() => {
                         const daily = (result.analyses?.daily_totals || [])
@@ -421,6 +438,55 @@ export default function DataAnalysis() {
                     </div>
                 </div>
             )}
+        </div>
+    );
+}
+
+// AI Loading State Component with rotating messages
+const LOADING_MESSAGES = [
+    "Crunching the latest data for you...",
+    "AI is analyzing your numbers...",
+    "Almost done...",
+    "Generating insights...",
+    "Processing financial patterns...",
+];
+
+function AILoadingState() {
+    const [messageIndex, setMessageIndex] = useState(0);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setMessageIndex((prev) => (prev + 1) % LOADING_MESSAGES.length);
+        }, 2000);
+        return () => clearInterval(interval);
+    }, []);
+
+    return (
+        <div className="relative overflow-hidden rounded-xl border border-slate-200/50 bg-gradient-to-br from-white via-slate-50 to-blue-50/60">
+            <div className="px-6 py-8 md:px-8 md:py-10">
+                <div className="flex items-center gap-3 mb-4">
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#4B9CD3] via-[#2B6FA6] to-[#0F3D63] shadow-md text-white">
+                        <Sparkles className="h-4 w-4 animate-pulse" />
+                    </span>
+                    <span className="text-base font-semibold text-slate-800 tracking-tight">
+                        AI Overview
+                    </span>
+                </div>
+                <div className="flex items-center gap-3">
+                    <Loader2 className="h-5 w-5 text-[#4B9CD3] animate-spin" />
+                    <p className="text-slate-600 text-[1.08rem] font-medium animate-pulse">
+                        {LOADING_MESSAGES[messageIndex]}
+                    </p>
+                </div>
+            </div>
+            <div
+                className="pointer-events-none absolute inset-0 rounded-xl"
+                aria-hidden="true"
+                style={{
+                    background: "radial-gradient(ellipse at top right, rgba(75, 156, 211, 0.1) 10%, transparent 70%)",
+                    zIndex: 0,
+                }}
+            />
         </div>
     );
 }

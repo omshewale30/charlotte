@@ -1,7 +1,7 @@
 import os
 from azure.identity import ClientSecretCredential
 from azure.ai.projects import AIProjectClient
-
+from openai import AzureOpenAI
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -24,6 +24,7 @@ class AzureClient:
         self.agent_id = os.getenv("AZURE_AGENT_ID")
         self.project_client = self.setup_azure_client()
         self.agent = self.get_agent()
+        self.llm = self.get_llm()
 
     def setup_azure_client(self):
         """
@@ -62,6 +63,15 @@ class AzureClient:
             error_msg = f"Failed to create Azure client: {str(e)}"
             logger.error(f"ERROR: {error_msg}")
             raise Exception(error_msg)
+    
+    def get_llm(self):
+
+        llm = AzureOpenAI(
+            api_version="2024-12-01-preview",
+            api_key=os.getenv("AZURE_OPENAI_KEY"),
+            azure_endpoint=os.getenv("AZURE_AI_RESOURCE_ENDPOINT")
+        )
+        return llm
 
     def get_agent(self):
         """

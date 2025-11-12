@@ -306,7 +306,7 @@ async def query_edi_transactions(query: EDIQuery, user: Dict = Depends(require_u
 
 
 @app.post("/api/edi/analyze")
-async def analyze_edi_range(request: EDIAnalysisRequest,user: Dict = Depends(require_unc_email)):
+async def analyze_edi_range(request: EDIAnalysisRequest, user: Dict = Depends(require_unc_email)):
     """Analyze EDI transactions between start and end dates (YYYY-MM-DD)."""
     try:
         if request.mode == "master":
@@ -317,7 +317,7 @@ async def analyze_edi_range(request: EDIAnalysisRequest,user: Dict = Depends(req
         records = loader.load_edi_json(request.start, request.end)
         df = loader.to_dataframe(records)
         analyses = loader.analyze(df)
-
+        
         # Convert DataFrames to JSON-serializable structures
         def df_to_records(d):
             if d is None or getattr(d, 'empty', True):
@@ -340,6 +340,36 @@ async def analyze_edi_range(request: EDIAnalysisRequest,user: Dict = Depends(req
                 cleaned_records.append(cleaned_record)
             return cleaned_records
 
+        # Generate AI overview using all analysis data
+        ai_overview = None
+        try:
+            azure_client = app.state.azure_client
+            llm = azure_client.llm
+            # Prepare all analysis data for the LLM
+            all_analysis_data = {
+                "summary_totals": df_to_records(analyses.get("summary_totals")),
+                "daily_totals": df_to_records(analyses.get("daily_totals")),
+                "by_originator": df_to_records(analyses.get("by_originator")),
+                "by_receiver": df_to_records(analyses.get("by_receiver")),
+            }
+            
+            # Import the prompt template
+            from prompts import ai_overview_prompt
+            
+            data_json = json.dumps(all_analysis_data, indent=2)
+            
+            ai_response = llm.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": ai_overview_prompt},
+                    {"role": "user", "content": f"Here is the analysis data:\n\n{data_json}"}
+                ]
+            )
+            ai_overview = ai_response.choices[0].message.content
+        except Exception as e:
+            logger.warning(f"Failed to generate AI overview: {e}")
+            ai_overview = None
+
         return {
             "success": True,
             "range": {"start": request.start, "end": request.end},
@@ -349,6 +379,7 @@ async def analyze_edi_range(request: EDIAnalysisRequest,user: Dict = Depends(req
                 "daily_totals": df_to_records(analyses.get("daily_totals")),
                 "by_originator": df_to_records(analyses.get("by_originator")),
                 "by_receiver": df_to_records(analyses.get("by_receiver")),
+                "ai_overview": ai_overview,
             },
         }
     except HTTPException:

@@ -13,16 +13,14 @@ export default function AIOverviewCard({ text }) {
       className="relative overflow-hidden rounded-xl border border-slate-200/50 bg-gradient-to-br from-white via-slate-50 to-blue-50/60 shadow-lg transition-shadow hover:shadow-xl"
       style={{
         minHeight: 140,
-        maxWidth: 700,
-        margin: "auto",
       }}
     >
       <div className="px-6 py-6 md:px-8 md:py-8">
-        <div className="flex items-center gap-3 mb-3">
-          <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-cyan-500/80 via-cyan-400/80 to-blue-500/80 shadow text-white text-xl font-bold select-none">
+        <div className="flex items-center gap-3 mb-4">
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#4B9CD3] via-[#2B6FA6] to-[#0F3D63] shadow-md text-white select-none">
             <svg
-              width="22"
-              height="22"
+              width="20"
+              height="20"
               fill="none"
               viewBox="0 0 24 24"
               className="inline-block"
@@ -51,7 +49,7 @@ export default function AIOverviewCard({ text }) {
         aria-hidden="true"
         style={{
           background:
-            "radial-gradient(ellipse at top right, #bae6fd88 10%, transparent 70%)",
+            "radial-gradient(ellipse at top right, rgba(75, 156, 211, 0.08) 10%, transparent 70%)",
           zIndex: 0,
         }}
       ></div>
