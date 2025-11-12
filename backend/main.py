@@ -791,8 +791,17 @@ async def upload_edi_report(
         all_transactions = parse_result.get("all_transactions", [])
         chs_transactions = parse_result.get("chs_transactions", [])
         chs_duplicate = parse_result.get("chs_duplicate", False)
-
+        all_duplicate = parse_result.get("all_duplicate", False)
+        
+        # If all transactions are duplicates, reject the upload completely (no blob upload)
+        if all_duplicate:
+            raise HTTPException(
+                status_code=409,
+                detail=f"All transactions from file '{file.filename}' already exist in the master-edi search index. File upload rejected."
+            )
+        
         # Upload to Azure Blob Storage (after successful parsing and duplicate check)
+        # Only upload if all_duplicate is false
         sample_transaction = all_transactions[0]
         sum_amount = sum(transaction.get("amount", 0) for transaction in all_transactions)
         metadata = {
@@ -807,19 +816,23 @@ async def upload_edi_report(
         logger.info(f"File uploaded to blob storage: {blob_name} with metadata: {metadata}")
 
         # Index transactions in search index
-        # Skip CHS indexing if trace numbers are duplicates, but still index all_transactions
+        # Skip CHS indexing if trace numbers are duplicates
         if chs_duplicate:
-            logger.warning(f"Skipping CHS transaction indexing due to duplicate trace numbers, but indexing all_transactions to master-edi")
+            logger.warning(f"Skipping CHS transaction indexing due to duplicate trace numbers in CHS search index")
             chs_index_success = False  # Explicitly set to False since we're skipping
         elif chs_transactions:
             chs_index_success = parser.index_transactions(chs_transactions, blob_name, "edi-transactions")
         
-        # Always index all_transactions to master-edi, regardless of CHS duplicate status
+        # Index all transactions to master-edi (all_duplicate check already handled above - upload rejected if true)
         if all_transactions:
             all_index_success = parser.index_transactions(all_transactions, blob_name, "master-edi")
 
-        # Consider it successful if all_transactions were indexed (CHS indexing is optional)
-        index_success = all_index_success
+        # Consider it successful if both indexes were updated successfully or if duplicates prevented CHS indexing
+        # Note: all_duplicate is already handled above (upload rejected), so we won't reach here if all_duplicate is true
+        index_success = (
+            (chs_index_success or chs_duplicate or not chs_transactions) and 
+            all_index_success
+        )
 
         if index_success:
             if chs_duplicate:
@@ -832,9 +845,15 @@ async def upload_edi_report(
         user_email = user.get('email', 'unknown') if user and isinstance(user, dict) else 'unknown'
         logger.info(f"EDI report processed: {blob_name} by user {user_email}; indexed={index_success}")
 
+        # Build message based on duplicate status
+        # Note: all_duplicate is already handled above (upload rejected), so we won't reach here if all_duplicate is true
+        message = "File uploaded and processed successfully"
+        if chs_duplicate:
+            message += " (CHS transactions skipped due to duplicates)"
+        
         return {
             "success": True,
-            "message": "File uploaded and processed successfully" + (" (CHS transactions skipped due to duplicates)" if chs_duplicate else ""),
+            "message": message,
             "filename": file.filename,
             "blob_name": blob_name,
             "size": len(file_content),
@@ -843,6 +862,7 @@ async def upload_edi_report(
             "chs_indexed": chs_index_success,
             "chs_duplicate": chs_duplicate,
             "all_indexed": all_index_success,
+            "all_duplicate": False,  # If we reach here, all_duplicate is false (upload would have been rejected otherwise)
             "uploaded_by": user.get('email') if user and isinstance(user, dict) else None
         }
 

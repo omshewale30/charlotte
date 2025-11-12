@@ -188,6 +188,7 @@ class EDITransactionExtractor:
             return []
 
         all_transactions = []
+        all_trace_numbers = []
         chs_transactions = []
         chs_trace_numbers = []
         
@@ -208,7 +209,7 @@ class EDITransactionExtractor:
                 
             if transaction:
                 all_transactions.append(transaction)
-            
+                all_trace_numbers.append(transaction.trace_number)
             if transaction and transaction.originator in CHS_ORIGINATORS:
                 #delete the 'line_items' from the transaction
                 transaction.line_items = []
@@ -216,7 +217,7 @@ class EDITransactionExtractor:
                 chs_transactions.append(transaction)
                 chs_trace_numbers.append(transaction.trace_number)
     
-        return all_transactions, chs_transactions, chs_trace_numbers
+        return all_transactions, chs_transactions, chs_trace_numbers, all_trace_numbers
 
     def _parse_ccd_chunk(self, chunk: str, file_name: str) -> Optional[EDITransaction]:
         """Parses a payment chunk identified as ACHCCD+ (Current-EDI-sample format)."""
@@ -371,7 +372,7 @@ def main():
     with open(pdf_path, 'rb') as f:
         pdf_bytes = f.read()
     
-    all_transactions, chs_transactions = parser.parse_edi_file(pdf_bytes, pdf_path.name)
+    all_transactions, chs_transactions, chs_trace_numbers, all_trace_numbers = parser.parse_edi_file(pdf_bytes, pdf_path.name)
     print(f"✓ Parsed {len(all_transactions)} all transactions")
     print(f"✓ Parsed {len(chs_transactions)} CHS transactions")
     # Save to JSON in the same directory as the script

@@ -29,7 +29,7 @@ export default function DataAnalysisToggle({ value, onChange }) {
                 : "bg-white text-gray-700 hover:bg-gray-50"
             }`}
         >
-          Master EDI
+          Primary EDI
         </span>
       </label>
       <label className="flex items-center cursor-pointer">

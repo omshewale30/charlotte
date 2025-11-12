@@ -61,19 +61,18 @@ class EDIParser:
         
         logger.info(f"Parsing EDI file: {filename}")
         
-        # Check if file already exists in search index (file-level duplicate check)
-        # If the entire file exists, we should not proceed at all
-        if self.chs_edi_search_service.check_if_file_exists(filename):
-            logger.warning(f"File {filename} already exists in CHS search index")
-            raise DuplicateReportError(
-                f"Transactions from file '{filename}' already exist in the CHS search index"
-            )
-        
+        # Check if file already exists in master-edi search index (file-level duplicate check)
+        # If the entire file exists in master-edi, we should not proceed at all
+        # Note: We allow files that exist only in CHS index to be re-processed to index all_transactions to master-edi
         if self.master_edi_search_service.check_if_file_exists(filename):
             logger.warning(f"File {filename} already exists in Master EDI search index")
             raise DuplicateReportError(
                 f"Transactions from file '{filename}' already exist in the Master EDI search index"
             )
+        
+        # Check if file exists in CHS index (for informational purposes, but don't reject)
+        if self.chs_edi_search_service.check_if_file_exists(filename):
+            logger.info(f"File {filename} already exists in CHS search index - will check trace numbers for duplicates")
         
         try:
             # Read the file
@@ -81,7 +80,7 @@ class EDIParser:
                 pdf_bytes = f.read()
             
 
-            all_transactions, chs_transactions, chs_trace_numbers = self.extractor.parse_edi_file(pdf_bytes, filename)
+            all_transactions, chs_transactions, chs_trace_numbers, all_trace_numbers = self.extractor.parse_edi_file(pdf_bytes, filename)
             if not all_transactions:
                 raise ValueError(f"No all transactions found in {filename}")
 
@@ -92,6 +91,7 @@ class EDIParser:
             # Check if any CHS trace numbers already exist in the CHS search index
             # This is a trace-number-level duplicate check (not file-level)
             chs_duplicate = False
+            all_duplicate = False
             if chs_trace_numbers:
                 try:
                     if self.chs_edi_search_service.check_if_trace_numbers_exist(chs_trace_numbers):
@@ -102,14 +102,24 @@ class EDIParser:
                     logger.error(f"Error checking if CHS trace numbers exist: {e}")
                     # Continue processing - we'll still try to index, but this is a warning
 
-        
+            if all_trace_numbers:
+                try:
+                    if self.master_edi_search_service.check_if_trace_numbers_exist(all_trace_numbers):
+                        logger.warning(f"All transactions with trace numbers {all_trace_numbers} already exist in the Master EDI search index. All transactions will not be indexed.")
+                        all_duplicate = True
+                except Exception as e:
+                    # If there's an error checking, log it but don't fail the entire parse
+                    logger.error(f"Error checking if all trace numbers exist: {e}")
+                    # Continue processing - we'll still try to index, but this is a warning
+                    pass
             return {
                 "all_transactions": all_transactions_dict,
                 "chs_transactions": chs_transactions_dict,
                 "file_name": filename,
                 "all_transaction_count": len(all_transactions_dict),
                 "chs_transaction_count": len(chs_transactions_dict),
-                "chs_duplicate": chs_duplicate
+                "chs_duplicate": chs_duplicate,
+                "all_duplicate": all_duplicate
             }
             
         except DuplicateReportError:
