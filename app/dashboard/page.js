@@ -14,7 +14,7 @@ there will be 4 main buttons:
 
 import ProtectedRoute from "@/components/protected-route";
 import Dashboard from "@/components/dashboard";
-
+{/* TODO: Make the dashboard page more dynamic and interactive */}
 
 export default function DashboardPage() {
   return (

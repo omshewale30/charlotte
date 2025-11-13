@@ -6,6 +6,9 @@ import { useAuth } from "@/components/auth-context-msal";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import Navigation from "@/components/navigation";
+{/* TODO: Make the UI more engaging and interactive 
+  - Add spacing between the features and the about section
+*/}
 
 export default function Home() {
   const { login, loading, error, isAuthenticated } = useAuth();

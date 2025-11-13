@@ -11,7 +11,7 @@ import json
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-#TODO: process the one CHS file which has OCR issues and check if the parser works
+
 CHS_ORIGINATORS = { 
 "BCBS of NC",
 "BCBS-NC",
