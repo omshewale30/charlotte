@@ -7,7 +7,9 @@ import { Button } from '@/components/ui/button';
 import UploadModal from '@/components/upload-modal';
 import AlignRxUploadModal from '@/components/align-rx-upload-modal';
 import Logout from '@/components/logout';
-
+import { APIClient } from '@/lib/api-client';
+import { useAuth } from '@/components/auth-context-msal';
+import { useEffect } from 'react';
 import { 
   MessageSquare, 
   BarChart3, 
@@ -26,13 +28,25 @@ export default function Dashboard() {
   const router = useRouter();
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showAlignRxUploadModal, setShowAlignRxUploadModal] = useState(false);
-  // Placeholder data - will be wired up later
-  const dashboardData = {
-    totalAmount: '$2,847,392.50',
-    totalTransactions: '1,247',
-    processedReports: '89',
-    currentYear: new Date().getFullYear()
-  };
+  const [dashboardData, setDashboardData] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const { getAuthHeaders } = useAuth();
+  const apiClient = new APIClient(getAuthHeaders);
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        setIsLoading(true);
+        const dashboardData = await apiClient.getEdiDashboardData();
+        setDashboardData(dashboardData);
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchDashboardData();
+  }, [getAuthHeaders]);
 
   const quickActions = [
     {
@@ -85,40 +99,90 @@ export default function Dashboard() {
     }
   ];
 
+  // Helper function to format date
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', { 
+        year: 'numeric', 
+        month: 'short', 
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (e) {
+      return 'N/A';
+    }
+  };
+
+  // Helper function to format currency
+  const formatCurrency = (amount) => {
+    if (!amount && amount !== 0) return '$0.00';
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD'
+    }).format(amount);
+  };
+
+  const ediData = dashboardData?.edi_dashboard_data || {};
+  const latestFiles = dashboardData?.latest_three_files || [];
+  const latestTime = dashboardData?.latest_time;
+
   const statsCards = [
     {
       title: 'Total Amount',
-      value: dashboardData.totalAmount,
-      description: `Current year (${dashboardData.currentYear})`,
+      value: formatCurrency(ediData.total_amount || 0),
+      description: `Current fiscal year (${new Date().getMonth() < 7 ? new Date().getFullYear() : new Date().getFullYear() + 1})`,
       icon: DollarSign,
       trend: '+12.5%',
       trendUp: true
     },
     {
       title: 'Total Transactions',
-      value: dashboardData.totalTransactions,
-      description: 'Processed this year',
+      value: (ediData.total_records || 0).toLocaleString(),
+      description: 'Processed this fiscal year',
       icon: TrendingUp,
       trend: '+8.2%',
       trendUp: true
     },
-    {
-      title: 'Reports Processed',
-      value: dashboardData.processedReports,
-      description: 'EDI reports uploaded',
-      icon: FileCheck,
-      trend: '+15.3%',
-      trendUp: true
-    },
+
     {
       title: 'Last Updated',
-      value: '2 hours ago',
-      description: 'Data refresh status',
+      value: formatDate(latestTime),
+      description: 'Latest EDI report uploaded',
       icon: Calendar,
       trend: 'Live',
       trendUp: null
     }
   ];
+
+  // Show full-page loading state until data is received
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-background via-[rgba(75,156,211,0.03)] to-background relative overflow-hidden flex items-center justify-center">
+        {/* Background decorative elements */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-0 right-0 w-96 h-96 bg-[#4B9CD3]/5 rounded-full blur-3xl"></div>
+          <div className="absolute bottom-0 left-0 w-96 h-96 bg-[#2B6FA6]/5 rounded-full blur-3xl"></div>
+        </div>
+
+        {/* Floating Logout Component */}
+        <div className="fixed top-4 right-4 z-50 fade-in-up">
+          <div className="bg-background/90 backdrop-blur-md border-2 border-primary/20 rounded-2xl shadow-2xl p-2">
+            <Logout />
+          </div>
+        </div>
+
+        {/* Full-page loading spinner */}
+        <div className="flex flex-col items-center justify-center relative z-10">
+          <div className="animate-spin rounded-full h-16 w-16 border-4 border-[#4B9CD3]/20 border-t-[#4B9CD3] mb-4"></div>
+          <h2 className="text-2xl font-semibold text-foreground mb-2">Loading Dashboard</h2>
+          <p className="text-muted-foreground">Fetching your data...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-[rgba(75,156,211,0.03)] to-background relative overflow-hidden">
@@ -154,7 +218,7 @@ export default function Dashboard() {
         </div>
 
         {/* Stats Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
           {statsCards.map((stat, index) => {
             const delayClass = index === 0 ? 'fade-in-up-delay-1' : 
                               index === 1 ? 'fade-in-up-delay-2' : 
@@ -262,50 +326,32 @@ export default function Dashboard() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between p-5 bg-gradient-to-r from-[#4B9CD3]/5 to-transparent rounded-xl border border-primary/10 hover:border-primary/20 hover:from-[#4B9CD3]/10 transition-all duration-300 group cursor-pointer">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[#4B9CD3]/20 to-[#2B6FA6]/20 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                      <FileText className="h-6 w-6 text-[#4B9CD3]" />
-                    </div>
-                    <div>
-                      <p className="font-semibold text-foreground group-hover:text-[#4B9CD3] transition-colors duration-300">EDI Remittance Advice Report_2063_20250828_chs.pdf</p>
-                      <p className="text-sm text-muted-foreground mt-1">Processed 2 hours ago</p>
-                    </div>
-                  </div>
-                  <span className="px-3 py-1.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-xs font-semibold rounded-full shadow-sm">
-                    Completed
-                  </span>
+              {latestFiles.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <p>No recent EDI reports found</p>
                 </div>
-                <div className="flex items-center justify-between p-5 bg-gradient-to-r from-[#4B9CD3]/5 to-transparent rounded-xl border border-primary/10 hover:border-primary/20 hover:from-[#4B9CD3]/10 transition-all duration-300 group cursor-pointer">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[#4B9CD3]/20 to-[#2B6FA6]/20 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                      <FileText className="h-6 w-6 text-[#4B9CD3]" />
+              ) : (
+                <div className="space-y-3">
+                  {latestFiles.map((file, index) => (
+                    <div key={index} className="flex items-center justify-between p-5 bg-gradient-to-r from-[#4B9CD3]/5 to-transparent rounded-xl border border-primary/10 hover:border-primary/20 hover:from-[#4B9CD3]/10 transition-all duration-300 group cursor-pointer">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[#4B9CD3]/20 to-[#2B6FA6]/20 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
+                          <FileText className="h-6 w-6 text-[#4B9CD3]" />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-foreground group-hover:text-[#4B9CD3] transition-colors duration-300">{file.name || 'N/A'}</p>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            uploaded by {file.uploaded_by || 'N/A'} at {formatDate(file.last_modified)}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="px-3 py-1.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-xs font-semibold rounded-full shadow-sm">
+                        Completed
+                      </span>
                     </div>
-                    <div>
-                      <p className="font-semibold text-foreground group-hover:text-[#4B9CD3] transition-colors duration-300">EDI Remittance Advice Report_2063_20250827_studentresource.pdf</p>
-                      <p className="text-sm text-muted-foreground mt-1">Processed 4 hours ago</p>
-                    </div>
-                  </div>
-                  <span className="px-3 py-1.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-xs font-semibold rounded-full shadow-sm">
-                    Completed
-                  </span>
+                  ))}
                 </div>
-                <div className="flex items-center justify-between p-5 bg-gradient-to-r from-[#4B9CD3]/5 to-transparent rounded-xl border border-primary/10 hover:border-primary/20 hover:from-[#4B9CD3]/10 transition-all duration-300 group cursor-pointer">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[#4B9CD3]/20 to-[#2B6FA6]/20 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                      <FileText className="h-6 w-6 text-[#4B9CD3]" />
-                    </div>
-                    <div>
-                      <p className="font-semibold text-foreground group-hover:text-[#4B9CD3] transition-colors duration-300">EDI Remittance Advice Report_2063_20250826_chs.pdf</p>
-                      <p className="text-sm text-muted-foreground mt-1">Processed 1 day ago</p>
-                    </div>
-                  </div>
-                  <span className="px-3 py-1.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-xs font-semibold rounded-full shadow-sm">
-                    Completed
-                  </span>
-                </div>
-              </div>
+              )}
             </CardContent>
           </Card>
         </div>

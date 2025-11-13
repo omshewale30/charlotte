@@ -25,7 +25,10 @@ class AzureBlobContainerClient:
             # This will raise if the container truly does not exist
             self.container_client.get_container_properties()
     
-    def list_blobs(self):
+    def list_blobs(self, include_metadata=False):
+        """List blobs in the container. Set include_metadata=True to include blob metadata."""
+        if include_metadata:
+            return self.container_client.list_blobs(include=['metadata'])
         return self.container_client.list_blobs()
     
     def upload_blob(self, blob_name: str, data: bytes, overwrite: bool = True):

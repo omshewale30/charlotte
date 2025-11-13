@@ -38,12 +38,11 @@ class MASTER_EDI_DataLoader:
         filter_expr = f"effective_date ge '{start_date}' and effective_date le '{end_date}'"
 
         # Page through results using skip/top
-        batch_size = 1000
-        skip = 0
-        records: List[Dict] = []
+
 
         # Select only fields needed downstream; include all core fields
         select_fields = [
+            "id",
             "trace_number",
             "amount",
             "effective_date",
@@ -60,20 +59,18 @@ class MASTER_EDI_DataLoader:
             "line_items",
         ]
 
-        while True:
-            results = self.search_service.search_client.search(
-                search_text="",  # filter-only query
-                filter=filter_expr,
-                select=select_fields,
-                top=batch_size,
-                skip=skip,
-            )
-            batch = [dict(r) for r in results]
-            records.extend(batch)
-            if len(batch) < batch_size:
-                break
-            skip += batch_size
-
+        # Use orderby to ensure consistent ordering across pagination requests
+        # Order by trace_number (unique identifier) to guarantee deterministic results
+        orderby_fields = ["trace_number asc"]
+        
+     
+        results = self.search_service.search_client.search(
+            search_text="",  # filter-only query
+            filter=filter_expr,
+            select=select_fields,
+            order_by=orderby_fields
+        )
+        records = [dict(r) for r in results]
         return records
 
 
@@ -88,6 +85,16 @@ class MASTER_EDI_DataLoader:
 
         records = self._load_search_records(start_date, end_date)
         return records
+    
+    def get_dashboard_data(self, start_date: str, end_date: str) -> Dict:
+        """Get dashboard data for the given date range."""
+        records = self.load_edi_json(start_date, end_date)
+        total_records = len(records)
+        total_amount = sum(float(record["amount"]) for record in records)
+        return {
+            "total_records": total_records,
+            "total_amount": total_amount
+        }
 
 
     def to_dataframe(self, records: List[Dict]) -> pd.DataFrame:

@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+import heapq  # for getting the latest three files
 import os
 from typing import List, Optional, Dict
 import logging
@@ -302,6 +303,83 @@ async def query_edi_transactions(query: EDIQuery, user: Dict = Depends(require_u
     except Exception as e:
         logger.error(f"Error processing EDI query: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing EDI query: {str(e)}")
+
+
+@app.get("/api/edi/dashboard_data")
+async def get_edi_dashboard_data(user: Dict = Depends(require_unc_email)):
+    """Get dashboard data for Master EDI transactions for current fiscal year
+    and the current status of the master edi storage files in the blob storage
+    """
+    try:
+        # Get the current status of the master edi storage files in the blob storage
+        blob_client = AzureBlobContainerClient(
+            connection_string=os.getenv("AZURE_STORAGE_CONNECTION_STRING"),
+            container_name="master-edi-reports",
+        )
+        blob_list_iterator = blob_client.list_blobs(include_metadata=True)
+        latest_three_files = heapq.nlargest(3, blob_list_iterator, key=lambda x: x.last_modified)
+        if not latest_three_files:
+            logger.warning(f"No files found in master-edi-reports")
+            return {
+                "edi_dashboard_data": None,
+                "total_files": 0
+            }
+        latest_three_files_info = []
+   
+        for file in latest_three_files:
+            uploaded_by = 'employee'
+            
+            # Get metadata from blob properties (metadata is now included in list_blobs with include_metadata=True)
+            if file.metadata and file.metadata.get("uploaded_by"):
+                uploaded_by = file.metadata.get("uploaded_by")
+                logger.info(f"Found metadata for {file.name}: uploaded_by={uploaded_by}")
+            else:
+                # Fallback: fetch blob properties individually if metadata not in list response
+                try:
+                    blob_props = blob_client.get_blob_properties(file.name)
+                    if blob_props.metadata and blob_props.metadata.get("uploaded_by"):
+                        uploaded_by = blob_props.metadata.get("uploaded_by")
+                        logger.info(f"Found metadata via get_blob_properties for {file.name}: uploaded_by={uploaded_by}")
+                    else:
+                        logger.debug(f"No metadata found for {file.name}, using default 'employee'")
+                except Exception as e:
+                    logger.warning(f"Error fetching metadata for {file.name}: {str(e)}, using default 'employee'")
+            
+            # Convert datetime to ISO format string for JSON serialization
+            last_modified_str = file.last_modified.isoformat() if file.last_modified else None
+            
+            latest_three_files_info.append({
+                "name": file.name,
+                "last_modified": last_modified_str,
+                "uploaded_by": uploaded_by
+            })
+        
+        latest_file = latest_three_files_info[0]
+        latest_time = latest_file.get("last_modified")
+        logger.info(f'latest files info: {latest_three_files_info}')
+        logger.info(f'latest time: {latest_time}')
+
+
+        current_year = datetime.now().year
+        current_month = datetime.now().month
+        if current_month < 7:
+            start_date = f"{current_year-1}-07-01"
+            end_date = f"{current_year}-06-30"
+        else:
+            start_date = f"{current_year}-07-01"
+            end_date = f"{current_year +1}-06-30"
+        logger.info(f"Getting EDI dashboard data for {start_date} to {end_date}")
+        loader = MASTER_EDI_DataLoader(start_date, end_date)
+        edi_dashboard_data = loader.get_dashboard_data(start_date, end_date)
+        logger.info(f"EDI dashboard data: {edi_dashboard_data}")
+        return {
+            "edi_dashboard_data": edi_dashboard_data,
+            "latest_three_files": latest_three_files_info,
+            "latest_time": latest_time
+        }
+    except Exception as e:
+        logger.error(f"Error getting EDI dashboard data: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting EDI dashboard data: {str(e)}")
 
 
 
