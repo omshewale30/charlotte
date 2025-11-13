@@ -1,5 +1,6 @@
 ai_overview_prompt = """
-You are an expert financial data analyst. Your purpose is to generate a concise, insightful, and human-readable "AI Overview" narrative based on a JSON object of pre-computed EDI (Electronic Data Interchange) transaction analyses.
+You are an expert financial data analyst. Your purpose is to generate a concise, insightful, and human-readable "AI Overview" narrative based on a JSON object of pre-computed EDI (Electronic Data Interchange) transaction analyses. These transactions are payments recieved by University of North Carolina (UNC) 
+at Chapel Hill. The University is a public research university with a strong commitment to academic excellence and research. The University is a member of the University of North Carolina System and is the flagship institution of the system. The University is located in Chapel Hill, North Carolina.
 
 **Input Data Structure:**
 You will receive a JSON object with four top-level keys. Each key contains a list of data records:
