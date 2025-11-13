@@ -130,84 +130,163 @@ export default function DataAnalysis() {
     };
 
     return (
-        <div className="max-w-5xl mx-auto p-6 space-y-6">
-            <h1 className="text-2xl font-semibold">Data Analysis</h1>
-            
-            <div className="flex items-center gap-4">
-                <label className="text-sm text-muted-foreground">Data Source:</label>
-                <DataAnalysisToggle value={dataAnalysisMode} onChange={setDataAnalysisMode} />
+        <div className="min-h-screen bg-gradient-to-br from-background via-[rgba(75,156,211,0.02)] to-background relative overflow-hidden">
+            {/* Background decorative elements */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-[#4B9CD3]/3 rounded-full blur-3xl"></div>
+                <div className="absolute bottom-0 left-0 w-[600px] h-[600px] bg-[#2B6FA6]/3 rounded-full blur-3xl"></div>
             </div>
 
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                <Button onClick={() => handleFinancialYear(year - 2)}>FY{String(year - 2).slice(-2)}-{String(year - 1).slice(-2)}</Button>
-                <Button onClick={() => handleFinancialYear(year - 1)}>FY{String(year - 1).slice(-2)}-{String(year).slice(-2)}</Button>
-                <Button onClick={() => handleFinancialYear(year)}>FY{String(year).slice(-2)}-{String(year + 1).slice(-2)}</Button>
-                <Button onClick={() => handleFinancialYear(year + 1)}>FY{String(year + 1).slice(-2)}-{String(year + 2).slice(-2)}</Button>
-            </div>
-        
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                <div className="flex flex-col gap-2">
-                    <label className="text-sm text-muted-foreground">Start date</label>
-                    <input
-                        type="date"
-                        value={startDate}
-                        onChange={(e) => setStartDate(e.target.value)}
-                        className="border border-input bg-background text-foreground rounded-md px-3 py-2"
-                    />
+            <div className="max-w-7xl mx-auto px-4 md:px-6 py-8 md:py-12 relative z-10 space-y-8">
+                {/* Header Section */}
+                <div className="mb-12 fade-in-up">
+                    <div className="flex items-center gap-4 mb-4">
+                        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#4B9CD3] to-[#2B6FA6] flex items-center justify-center shadow-lg">
+                            <Sparkles className="h-7 w-7 text-white" />
+                        </div>
+                        <div>
+                            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-foreground tracking-tight">
+                                Data <span className="bg-gradient-to-r from-[#4B9CD3] to-[#2B6FA6] bg-clip-text text-transparent">Analysis</span>
+                            </h1>
+                        </div>
+                    </div>
+                    <p className="text-lg md:text-xl text-muted-foreground md:ml-[4.5rem]">
+                        Analyze EDI transactions and generate insights with AI-powered overviews
+                    </p>
                 </div>
-                <div className="flex flex-col gap-2">
-                    <label className="text-sm text-muted-foreground">End date</label>
-                    <input
-                        type="date"
-                        value={endDate}
-                        onChange={(e) => setEndDate(e.target.value)}
-                        className="border border-input bg-background text-foreground rounded-md px-3 py-2"
-                    />
-                </div>
-                <div className="flex gap-2">
-                    <Button onClick={handleAnalyze} disabled={loading || !startDate || !endDate}>
-                        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Load"}
-                    </Button>
-                    <Button variant="outline" onClick={handleDownload} disabled={!startDate || !endDate}>
-                        Download Excel
-                    </Button>
-                </div>
-            </div>
 
-            {error && (
-                <div className="text-red-500 text-sm">{error}</div>
-            )}
+                {/* Controls Section */}
+                <Card className="border-2 border-primary/10 bg-card/80 backdrop-blur-sm shadow-xl fade-in-up-delay-1">
+                    <CardHeader className="pb-6">
+                        <CardTitle className="text-2xl font-bold text-foreground">Analysis Controls</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                        {/* Data Source Toggle */}
+                        <div className="flex items-center gap-4 p-4 rounded-xl bg-gradient-to-r from-[#4B9CD3]/5 to-transparent border border-primary/10">
+                            <label className="text-sm font-semibold text-foreground">Data Source:</label>
+                            <DataAnalysisToggle value={dataAnalysisMode} onChange={setDataAnalysisMode} />
+                        </div>
+
+                        {/* Financial Year Quick Select */}
+                        <div className="space-y-3">
+                            <label className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Quick Select Financial Year</label>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                {[
+                                    { label: `FY${String(year - 2).slice(-2)}-${String(year - 1).slice(-2)}`, year: year - 2 },
+                                    { label: `FY${String(year - 1).slice(-2)}-${String(year).slice(-2)}`, year: year - 1 },
+                                    { label: `FY${String(year).slice(-2)}-${String(year + 1).slice(-2)}`, year: year },
+                                    { label: `FY${String(year + 1).slice(-2)}-${String(year + 2).slice(-2)}`, year: year + 1 }
+                                ].map((fy, index) => (
+                                    <Button 
+                                        key={index}
+                                        onClick={() => handleFinancialYear(fy.year)}
+                                        variant="outline"
+                                        className="border-2 border-primary/10 bg-card/60 backdrop-blur-sm hover:border-primary/30 hover:bg-card/80 transition-all duration-300 hover:scale-105"
+                                    >
+                                        {fy.label}
+                                    </Button>
+                                ))}
+                            </div>
+                        </div>
+                    
+                        {/* Date Range Inputs */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="flex flex-col gap-2">
+                                <label className="text-sm font-semibold text-foreground">Start Date</label>
+                                <input
+                                    type="date"
+                                    value={startDate}
+                                    onChange={(e) => setStartDate(e.target.value)}
+                                    className="border-2 border-primary/10 bg-card/60 backdrop-blur-sm text-foreground rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#4B9CD3]/20 focus:border-[#4B9CD3]/40 transition-all duration-300 hover:border-primary/20"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-2">
+                                <label className="text-sm font-semibold text-foreground">End Date</label>
+                                <input
+                                    type="date"
+                                    value={endDate}
+                                    onChange={(e) => setEndDate(e.target.value)}
+                                    className="border-2 border-primary/10 bg-card/60 backdrop-blur-sm text-foreground rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#4B9CD3]/20 focus:border-[#4B9CD3]/40 transition-all duration-300 hover:border-primary/20"
+                                />
+                            </div>
+                            <div className="flex gap-3 items-end">
+                                <Button 
+                                    onClick={handleAnalyze} 
+                                    disabled={loading || !startDate || !endDate}
+                                    className="flex-1 bg-gradient-to-br from-[#4B9CD3] to-[#2B6FA6] hover:from-[#2B6FA6] hover:to-[#0F3D63] text-white shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {loading ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : null}
+                                    {loading ? "Loading..." : "Analyze"}
+                                </Button>
+                                <Button 
+                                    variant="outline" 
+                                    onClick={handleDownload} 
+                                    disabled={!startDate || !endDate}
+                                    className="flex-1 border-2 border-primary/20 bg-card/60 backdrop-blur-sm hover:border-primary/40 hover:bg-card/80 transition-all duration-300 disabled:opacity-50"
+                                >
+                                    Download Excel
+                                </Button>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {error && (
+                    <Card className="border-2 border-destructive/20 bg-destructive/10 backdrop-blur-sm fade-in-up-delay-2">
+                        <CardContent className="p-4">
+                            <div className="text-destructive font-medium">{error}</div>
+                        </CardContent>
+                    </Card>
+                )}
 
             {result && (
-                <div className="space-y-6">
-                                    {(() => {
+                <div className="space-y-8 fade-in-up-delay-2">
+                    {/* Summary Stats Cards */}
+                    {(() => {
                         const summary = (result.analyses?.summary_totals || [])[0] || {};
                         return (
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                <div className="border rounded-md p-4">
-                                    <div className="text-sm text-muted-foreground">Rows</div>
-                                    <div className="text-xl font-medium">{formatNumber(result.row_count)}</div>
-                                </div>
-                                <div className="border rounded-md p-4">
-                                    <div className="text-sm text-muted-foreground">Total Amount</div>
-                                    <div className="text-xl font-medium">{formatCurrency(summary.sum_amount)}</div>
-                                </div>
-                                <div className="border rounded-md p-4">
-                                    <div className="text-sm text-muted-foreground">Average Amount</div>
-                                    <div className="text-xl font-medium">{formatCurrency(summary.avg_amount)}</div>
-                                </div>
-                                <div className="border rounded-md p-4">
-                                    <div className="text-sm text-muted-foreground">Date Range</div>
-                                    <div className="text-sm font-medium">{result.range?.start} → {result.range?.end}</div>
-                                </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                                <Card className="border-2 border-primary/10 bg-card/80 backdrop-blur-sm shadow-lg hover:shadow-2xl hover:border-primary/30 transition-all duration-300 group">
+                                    <CardHeader className="pb-3">
+                                        <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Total Rows</CardTitle>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="text-xl md:text-2xl font-bold text-foreground break-words">{formatNumber(result.row_count)}</div>
+                                    </CardContent>
+                                </Card>
+                                <Card className="border-2 border-primary/10 bg-card/80 backdrop-blur-sm shadow-lg hover:shadow-2xl hover:border-primary/30 transition-all duration-300 group">
+                                    <CardHeader className="pb-3">
+                                        <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Total Amount</CardTitle>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="text-xl md:text-2xl font-bold text-[#4B9CD3] break-words">{formatCurrency(summary.sum_amount)}</div>
+                                    </CardContent>
+                                </Card>
+                                <Card className="border-2 border-primary/10 bg-card/80 backdrop-blur-sm shadow-lg hover:shadow-2xl hover:border-primary/30 transition-all duration-300 group">
+                                    <CardHeader className="pb-3">
+                                        <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Average Amount</CardTitle>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="text-xl md:text-2xl font-bold text-foreground break-words">{formatCurrency(summary.avg_amount)}</div>
+                                    </CardContent>
+                                </Card>
+                                <Card className="border-2 border-primary/10 bg-card/80 backdrop-blur-sm shadow-lg hover:shadow-2xl hover:border-primary/30 transition-all duration-300 group">
+                                    <CardHeader className="pb-3">
+                                        <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Date Range</CardTitle>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="text-base md:text-lg font-semibold text-foreground break-words">{result.range?.start}</div>
+                                        <div className="text-xs text-muted-foreground">to</div>
+                                        <div className="text-base md:text-lg font-semibold text-foreground break-words">{result.range?.end}</div>
+                                    </CardContent>
+                                </Card>
                             </div>
                         );
                     })()}
 
                     {/* AI Overview */}
                     {(result.analyses?.ai_overview || aiOverviewLoading) && (
-                        <Card className="border border-slate-200/60 overflow-hidden">
+                        <Card className="border-2 border-primary/10 bg-card/80 backdrop-blur-sm shadow-xl overflow-hidden fade-in-up-delay-3">
                             <CardContent className="p-0">
                                 {aiOverviewLoading ? (
                                     <AILoadingState />
@@ -275,38 +354,65 @@ export default function DataAnalysis() {
                         };
 
                         return (
-                            <div className="grid grid-cols-1 gap-6">
-                                <Card className="border border-slate-200/60">
-                                    <CardHeader>
-                                        <CardTitle className="text-lg">Daily Amounts</CardTitle>
+                            <div className="grid grid-cols-1 gap-8 fade-in-up-delay-3">
+                                <Card className="border-2 border-primary/10 bg-card/80 backdrop-blur-sm shadow-xl">
+                                    <CardHeader className="pb-4">
+                                        <CardTitle className="text-2xl font-bold text-foreground flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#4B9CD3]/20 to-[#2B6FA6]/20 flex items-center justify-center">
+                                                <Sparkles className="h-5 w-5 text-[#4B9CD3]" />
+                                            </div>
+                                            Daily Amounts
+                                        </CardTitle>
                                     </CardHeader>
-                                    <CardContent className="h-72">
+                                    <CardContent className="h-80">
                                         <ResponsiveContainer width="100%" height="100%">
                                             <BarChart data={daily} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" opacity={0.3} />
                                                 <XAxis dataKey="effective_date" tick={{ fontSize: 12 }} interval={Math.ceil(daily.length / 7)} />
                                                 <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `$${Number(v).toLocaleString()}`} />
-                                                <Tooltip formatter={(v) => [`$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, "Sum Amount"]} labelFormatter={(l) => `Date: ${l}`} />
-                                                <Bar dataKey="sum_amount" fill={CAROLINA} radius={[4, 4, 0, 0]}>
+                                                <Tooltip 
+                                                    formatter={(v) => [`$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, "Sum Amount"]} 
+                                                    labelFormatter={(l) => `Date: ${l}`}
+                                                    contentStyle={{ 
+                                                        backgroundColor: 'rgba(255, 255, 255, 0.95)', 
+                                                        border: '2px solid rgba(75, 156, 211, 0.2)',
+                                                        borderRadius: '8px',
+                                                        backdropFilter: 'blur(10px)'
+                                                    }}
+                                                />
+                                                <Bar dataKey="sum_amount" fill={CAROLINA} radius={[8, 8, 0, 0]}>
                                                 </Bar>
                                             </BarChart>
                                         </ResponsiveContainer>
                                     </CardContent>
                                 </Card>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <Card className="border border-slate-200/60">
-                                        <CardHeader>
-                                            <CardTitle className="text-lg">By Originator</CardTitle>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                    <Card className="border-2 border-primary/10 bg-card/80 backdrop-blur-sm shadow-xl">
+                                        <CardHeader className="pb-4">
+                                            <CardTitle className="text-2xl font-bold text-foreground flex items-center gap-3">
+                                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#4B9CD3]/20 to-[#2B6FA6]/20 flex items-center justify-center">
+                                                    <Sparkles className="h-5 w-5 text-[#4B9CD3]" />
+                                                </div>
+                                                By Originator
+                                            </CardTitle>
                                         </CardHeader>
-                                        <CardContent className="h-72">
+                                        <CardContent className="h-80">
                                             <ResponsiveContainer width="100%" height="100%">
                                                 <PieChart>
-                                                    <Tooltip formatter={(v, n, e) => [`$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, e?.payload?.originator || ""]} />
+                                                    <Tooltip 
+                                                        formatter={(v, n, e) => [`$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, e?.payload?.originator || ""]}
+                                                        contentStyle={{ 
+                                                            backgroundColor: 'rgba(255, 255, 255, 0.95)', 
+                                                            border: '2px solid rgba(75, 156, 211, 0.2)',
+                                                            borderRadius: '8px',
+                                                            backdropFilter: 'blur(10px)'
+                                                        }}
+                                                    />
                                                     <Legend verticalAlign="bottom" height={24} wrapperStyle={{ fontSize: 12 }} />
                                                     <Pie data={byOriginator} dataKey="sum_amount" nameKey="originator" cx="50%" cy="50%" outerRadius={88} minAngle={5} paddingAngle={2} labelLine={{ stroke: "#cbd5e1" }} label={renderExternalLabel}>
                                                         {byOriginator.map((_, idx) => (
-                                                            <Cell key={`org-slice-${idx}`} fill={ACCENTS[idx % ACCENTS.length]} stroke="#ffffff" strokeWidth={1} />
+                                                            <Cell key={`org-slice-${idx}`} fill={ACCENTS[idx % ACCENTS.length]} stroke="#ffffff" strokeWidth={2} />
                                                         ))}
                                                     </Pie>
                                                 </PieChart>
@@ -314,18 +420,31 @@ export default function DataAnalysis() {
                                         </CardContent>
                                     </Card>
 
-                                    <Card className="border border-slate-200/60">
-                                        <CardHeader>
-                                            <CardTitle className="text-lg">By Receiver</CardTitle>
+                                    <Card className="border-2 border-primary/10 bg-card/80 backdrop-blur-sm shadow-xl">
+                                        <CardHeader className="pb-4">
+                                            <CardTitle className="text-2xl font-bold text-foreground flex items-center gap-3">
+                                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#4B9CD3]/20 to-[#2B6FA6]/20 flex items-center justify-center">
+                                                    <Sparkles className="h-5 w-5 text-[#4B9CD3]" />
+                                                </div>
+                                                By Receiver
+                                            </CardTitle>
                                         </CardHeader>
-                                        <CardContent className="h-72">
+                                        <CardContent className="h-80">
                                             <ResponsiveContainer width="100%" height="100%">
                                                 <PieChart>
-                                                    <Tooltip formatter={(v, n, e) => [`$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, e?.payload?.receiver || ""]} />
+                                                    <Tooltip 
+                                                        formatter={(v, n, e) => [`$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, e?.payload?.receiver || ""]}
+                                                        contentStyle={{ 
+                                                            backgroundColor: 'rgba(255, 255, 255, 0.95)', 
+                                                            border: '2px solid rgba(75, 156, 211, 0.2)',
+                                                            borderRadius: '8px',
+                                                            backdropFilter: 'blur(10px)'
+                                                        }}
+                                                    />
                                                     <Legend verticalAlign="bottom" height={24} wrapperStyle={{ fontSize: 12 }} />
                                                     <Pie data={byReceiver} dataKey="sum_amount" nameKey="receiver" cx="50%" cy="50%" outerRadius={88} minAngle={5} paddingAngle={2} labelLine={{ stroke: "#cbd5e1" }} label={renderExternalLabel}>
                                                         {byReceiver.map((_, idx) => (
-                                                            <Cell key={`rcv-slice-${idx}`} fill={ACCENTS[idx % ACCENTS.length]} stroke="#ffffff" strokeWidth={1} />
+                                                            <Cell key={`rcv-slice-${idx}`} fill={ACCENTS[idx % ACCENTS.length]} stroke="#ffffff" strokeWidth={2} />
                                                         ))}
                                                     </Pie>
                                                 </PieChart>
@@ -340,104 +459,126 @@ export default function DataAnalysis() {
 
 
                     {/* Daily Totals Table */}
-                    <div className="border rounded-md">
-                        <div className="p-4 border-b">
-                            <div className="text-lg font-semibold">Daily Totals</div>
-                            <div className="text-xs text-muted-foreground">Sum of amounts per day (first 60 rows)</div>
-                        </div>
-                        <div className="max-h-96 overflow-auto">
-                            <table className="w-full text-sm">
-                                <thead className="sticky top-0 bg-background border-b">
-                                    <tr>
-                                        <th className="text-left px-4 py-2 w-1/2">Date</th>
-                                        <th className="text-left px-4 py-2">Sum Amount</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {(result.analyses?.daily_totals || [])
-                                        .slice()
-                                        .sort((a, b) => (a.effective_date || "").localeCompare(b.effective_date || ""))
-                                        .slice(0, 60)
-                                        .map((row, idx) => (
-                                            <tr key={`daily-${idx}`} className="border-b last:border-0">
-                                                <td className="px-4 py-2">{row.effective_date || "-"}</td>
-                                                <td className="px-4 py-2">{formatCurrency(row.sum_amount)}</td>
-                                            </tr>
-                                        ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                    <Card className="border-2 border-primary/10 bg-card/80 backdrop-blur-sm shadow-xl fade-in-up-delay-4">
+                        <CardHeader className="pb-4">
+                            <CardTitle className="text-2xl font-bold text-foreground flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#4B9CD3]/20 to-[#2B6FA6]/20 flex items-center justify-center">
+                                    <Sparkles className="h-5 w-5 text-[#4B9CD3]" />
+                                </div>
+                                Daily Totals
+                            </CardTitle>
+                            <p className="text-sm text-muted-foreground mt-2">Sum of amounts per day (first 60 rows)</p>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="max-h-96 overflow-auto rounded-lg border border-primary/10">
+                                <table className="w-full text-sm">
+                                    <thead className="sticky top-0 bg-gradient-to-r from-[#4B9CD3]/10 to-[#2B6FA6]/10 backdrop-blur-sm border-b border-primary/20">
+                                        <tr>
+                                            <th className="text-left px-4 py-3 font-semibold text-foreground w-1/2">Date</th>
+                                            <th className="text-left px-4 py-3 font-semibold text-foreground">Sum Amount</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {(result.analyses?.daily_totals || [])
+                                            .slice()
+                                            .sort((a, b) => (a.effective_date || "").localeCompare(b.effective_date || ""))
+                                            .slice(0, 60)
+                                            .map((row, idx) => (
+                                                <tr key={`daily-${idx}`} className="border-b border-primary/5 hover:bg-[#4B9CD3]/5 transition-colors duration-200">
+                                                    <td className="px-4 py-3 text-foreground">{row.effective_date || "-"}</td>
+                                                    <td className="px-4 py-3 font-semibold text-[#4B9CD3]">{formatCurrency(row.sum_amount)}</td>
+                                                </tr>
+                                            ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </CardContent>
+                    </Card>
 
                     {/* By Originator Table */}
-                    <div className="border rounded-md">
-                        <div className="p-4 border-b">
-                            <div className="text-lg font-semibold">By Originator</div>
-                            <div className="text-xs text-muted-foreground">Top 50 by total amount</div>
-                        </div>
-                        <div className="max-h-96 overflow-auto">
-                            <table className="w-full text-sm">
-                                <thead className="sticky top-0 bg-background border-b">
-                                    <tr>
-                                        <th className="text-left px-4 py-2">Originator</th>
-                                        <th className="text-left px-4 py-2">Count</th>
-                                        <th className="text-left px-4 py-2">Sum Amount</th>
-                                        <th className="text-left px-4 py-2">Avg Amount</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {(result.analyses?.by_originator || [])
-                                        .slice()
-                                        .sort((a, b) => Number(b.sum_amount || 0) - Number(a.sum_amount || 0))
-                                        .slice(0, 50)
-                                        .map((row, idx) => (
-                                            <tr key={`org-${idx}`} className="border-b last:border-0">
-                                                <td className="px-4 py-2">{row.originator || "-"}</td>
-                                                <td className="px-4 py-2">{formatNumber(row.count)}</td>
-                                                <td className="px-4 py-2">{formatCurrency(row.sum_amount)}</td>
-                                                <td className="px-4 py-2">{formatCurrency(row.avg_amount)}</td>
-                                            </tr>
-                                        ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                    <Card className="border-2 border-primary/10 bg-card/80 backdrop-blur-sm shadow-xl fade-in-up-delay-4">
+                        <CardHeader className="pb-4">
+                            <CardTitle className="text-2xl font-bold text-foreground flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#4B9CD3]/20 to-[#2B6FA6]/20 flex items-center justify-center">
+                                    <Sparkles className="h-5 w-5 text-[#4B9CD3]" />
+                                </div>
+                                By Originator
+                            </CardTitle>
+                            <p className="text-sm text-muted-foreground mt-2">Top 50 by total amount</p>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="max-h-96 overflow-auto rounded-lg border border-primary/10">
+                                <table className="w-full text-sm">
+                                    <thead className="sticky top-0 bg-gradient-to-r from-[#4B9CD3]/10 to-[#2B6FA6]/10 backdrop-blur-sm border-b border-primary/20">
+                                        <tr>
+                                            <th className="text-left px-4 py-3 font-semibold text-foreground">Originator</th>
+                                            <th className="text-left px-4 py-3 font-semibold text-foreground">Count</th>
+                                            <th className="text-left px-4 py-3 font-semibold text-foreground">Sum Amount</th>
+                                            <th className="text-left px-4 py-3 font-semibold text-foreground">Avg Amount</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {(result.analyses?.by_originator || [])
+                                            .slice()
+                                            .sort((a, b) => Number(b.sum_amount || 0) - Number(a.sum_amount || 0))
+                                            .slice(0, 50)
+                                            .map((row, idx) => (
+                                                <tr key={`org-${idx}`} className="border-b border-primary/5 hover:bg-[#4B9CD3]/5 transition-colors duration-200">
+                                                    <td className="px-4 py-3 text-foreground">{row.originator || "-"}</td>
+                                                    <td className="px-4 py-3">{formatNumber(row.count)}</td>
+                                                    <td className="px-4 py-3 font-semibold text-[#4B9CD3]">{formatCurrency(row.sum_amount)}</td>
+                                                    <td className="px-4 py-3">{formatCurrency(row.avg_amount)}</td>
+                                                </tr>
+                                            ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </CardContent>
+                    </Card>
 
                     {/* By Receiver Table */}
-                    <div className="border rounded-md">
-                        <div className="p-4 border-b">
-                            <div className="text-lg font-semibold">By Receiver</div>
-                            <div className="text-xs text-muted-foreground">Top 50 by total amount</div>
-                        </div>
-                        <div className="max-h-96 overflow-auto">
-                            <table className="w-full text-sm">
-                                <thead className="sticky top-0 bg-background border-b">
-                                    <tr>
-                                        <th className="text-left px-4 py-2">Receiver</th>
-                                        <th className="text-left px-4 py-2">Count</th>
-                                        <th className="text-left px-4 py-2">Sum Amount</th>
-                                        <th className="text-left px-4 py-2">Avg Amount</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {(result.analyses?.by_receiver || [])
-                                        .slice()
-                                        .sort((a, b) => Number(b.sum_amount || 0) - Number(a.sum_amount || 0))
-                                        .slice(0, 50)
-                                        .map((row, idx) => (
-                                            <tr key={`rcv-${idx}`} className="border-b last:border-0">
-                                                <td className="px-4 py-2">{row.receiver || "-"}</td>
-                                                <td className="px-4 py-2">{formatNumber(row.count)}</td>
-                                                <td className="px-4 py-2">{formatCurrency(row.sum_amount)}</td>
-                                                <td className="px-4 py-2">{formatCurrency(row.avg_amount)}</td>
-                                            </tr>
-                                        ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                    <Card className="border-2 border-primary/10 bg-card/80 backdrop-blur-sm shadow-xl fade-in-up-delay-4">
+                        <CardHeader className="pb-4">
+                            <CardTitle className="text-2xl font-bold text-foreground flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#4B9CD3]/20 to-[#2B6FA6]/20 flex items-center justify-center">
+                                    <Sparkles className="h-5 w-5 text-[#4B9CD3]" />
+                                </div>
+                                By Receiver
+                            </CardTitle>
+                            <p className="text-sm text-muted-foreground mt-2">Top 50 by total amount</p>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="max-h-96 overflow-auto rounded-lg border border-primary/10">
+                                <table className="w-full text-sm">
+                                    <thead className="sticky top-0 bg-gradient-to-r from-[#4B9CD3]/10 to-[#2B6FA6]/10 backdrop-blur-sm border-b border-primary/20">
+                                        <tr>
+                                            <th className="text-left px-4 py-3 font-semibold text-foreground">Receiver</th>
+                                            <th className="text-left px-4 py-3 font-semibold text-foreground">Count</th>
+                                            <th className="text-left px-4 py-3 font-semibold text-foreground">Sum Amount</th>
+                                            <th className="text-left px-4 py-3 font-semibold text-foreground">Avg Amount</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {(result.analyses?.by_receiver || [])
+                                            .slice()
+                                            .sort((a, b) => Number(b.sum_amount || 0) - Number(a.sum_amount || 0))
+                                            .slice(0, 50)
+                                            .map((row, idx) => (
+                                                <tr key={`rcv-${idx}`} className="border-b border-primary/5 hover:bg-[#4B9CD3]/5 transition-colors duration-200">
+                                                    <td className="px-4 py-3 text-foreground">{row.receiver || "-"}</td>
+                                                    <td className="px-4 py-3">{formatNumber(row.count)}</td>
+                                                    <td className="px-4 py-3 font-semibold text-[#4B9CD3]">{formatCurrency(row.sum_amount)}</td>
+                                                    <td className="px-4 py-3">{formatCurrency(row.avg_amount)}</td>
+                                                </tr>
+                                            ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </CardContent>
+                    </Card>
                 </div>
             )}
+            </div>
         </div>
     );
 }
