@@ -294,16 +294,36 @@ export default function ChatLayout() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gradient-to-br from-background via-[rgba(75,156,211,0.02)] to-background relative overflow-hidden">
-      {/* Background decorative elements */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-[#4B9CD3]/3 rounded-full blur-3xl"></div>
-        <div className="absolute bottom-0 left-0 w-[600px] h-[600px] bg-[#2B6FA6]/3 rounded-full blur-3xl"></div>
-      </div>
+    <>
+      <style dangerouslySetInnerHTML={{__html: `
+        .chat-messages-scroll::-webkit-scrollbar {
+          width: 8px;
+        }
+        .chat-messages-scroll::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .chat-messages-scroll::-webkit-scrollbar-thumb {
+          background-color: rgba(75, 156, 211, 0.3);
+          border-radius: 4px;
+        }
+        .chat-messages-scroll::-webkit-scrollbar-thumb:hover {
+          background-color: rgba(75, 156, 211, 0.5);
+        }
+        .chat-messages-scroll {
+          scrollbar-width: thin;
+          scrollbar-color: rgba(75, 156, 211, 0.3) transparent;
+        }
+      `}} />
+      <div className="flex flex-col h-screen bg-gradient-to-br from-background via-[rgba(75,156,211,0.02)] to-background relative overflow-hidden">
+        {/* Background decorative elements */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-[#4B9CD3]/3 rounded-full blur-3xl"></div>
+          <div className="absolute bottom-0 left-0 w-[600px] h-[600px] bg-[#2B6FA6]/3 rounded-full blur-3xl"></div>
+        </div>
 
 
 
-      <div className="flex flex-1 relative z-10">
+      <div className="flex flex-1 relative z-10 min-h-0">
         {/* Sidebar */}
         <ChatSidebar
           currentConversationId={conversationId}
@@ -321,8 +341,8 @@ export default function ChatLayout() {
       {/* Main Chat Area */}
       <div
         className={cn(
-          "flex-1 flex flex-col transition-all duration-300 relative",
-          sidebarCollapsed ? "ml-0" : "ml-0"
+          "flex-1 flex flex-col transition-all duration-300 relative h-full w-full min-h-0",
+          !sidebarCollapsed && !isMobile ? "ml-64" : "ml-0"
         )}
       >
         {/* Sidebar Toggle Button - Always Visible */}
@@ -418,10 +438,9 @@ export default function ChatLayout() {
           </div>
         ) : (
           // Full chat view
-          <>
-
+          <div className="flex flex-col h-full min-h-0">
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto min-h-0 chat-messages-scroll">
               <div className="max-w-3xl mx-auto px-4 md:px-6 py-8 space-y-6">
                 {messages.map((message, index) => (
                   <div key={index} className="fade-in-up">
@@ -433,7 +452,7 @@ export default function ChatLayout() {
             </div>
 
             {/* Input area - fixed at bottom */}
-            <div className="border-t-2 border-primary/10 bg-background/95 backdrop-blur-md shadow-2xl">
+            <div className="flex-shrink-0 border-t-2 border-primary/10 bg-background/95 backdrop-blur-md shadow-2xl">
               <div className="max-w-3xl mx-auto px-4 md:px-6 py-5">
                 <form onSubmit={handleSubmit} className="space-y-4">
                   {/* Toggle switch */}
@@ -478,10 +497,11 @@ export default function ChatLayout() {
                 </form>
               </div>
             </div>
-          </>
+          </div>
         )}
         </div>
       </div>
     </div>
+    </>
   );
 }

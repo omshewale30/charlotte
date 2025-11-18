@@ -169,13 +169,16 @@ export default function ChatSidebar({
 
       <div
         className={cn(
-          "flex flex-col h-full bg-gray-900 text-white transition-all duration-300 ease-in-out relative",
+          "flex flex-col h-screen bg-gray-900 text-white transition-all duration-300 ease-in-out relative shadow-2xl",
           isMobile
             ? cn(
-                "fixed left-0 top-0 z-50 lg:relative lg:z-auto",
+                "fixed left-0 top-0 z-50 lg:fixed lg:z-50",
                 isCollapsed ? "-translate-x-full lg:translate-x-0 lg:w-0 lg:overflow-hidden" : "translate-x-0 w-64"
               )
-            : isCollapsed ? "w-0 overflow-hidden" : "w-64"
+            : cn(
+                "fixed left-0 top-0 z-50",
+                isCollapsed ? "w-0 overflow-hidden" : "w-64"
+              )
         )}
       >
       {/* Close Button - Only visible when sidebar is open */}
