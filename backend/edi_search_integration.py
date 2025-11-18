@@ -62,6 +62,7 @@ class EDISearchIntegration:
             # Prompt for parameter extraction
             system_prompt = """You are an expert at extracting structured data from natural language queries about financial transactions.
 
+If user gives a vague date range like "around 10/3/25", "around 10/10/25", "around 10/15/25". set the date_start to 2 days before the date and the date_end to 2 days after the specified date.
 Extract the following information from the user's query and return it as valid JSON:
 - amount: float or null (exact monetary amount like $92.39, 103.12 dollars, etc.)
 - amount_min: float or null (minimum amount for range queries like "over $100", "more than $50")  
