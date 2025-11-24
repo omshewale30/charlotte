@@ -1117,7 +1117,7 @@ async def get_edi_reports(user: Dict = Depends(require_unc_email)):
     try:
         # Initialize Azure Blob client for edi-reports container
         connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-        container_name = "edi-reports"
+        container_name = "master-edi-reports"
 
         if not connection_string:
             raise HTTPException(status_code=500, detail="Azure Storage configuration not found")
@@ -1133,11 +1133,12 @@ async def get_edi_reports(user: Dict = Depends(require_unc_email)):
             # EDI Remittance Advice Report_2063_20250819_chs.pdf
             filename = blob.name
             blob_props = blob_client.get_blob_properties(filename)
+            metadata = blob_client.get_blob_metadata(filename)
             
             # Parse filename to extract date and other info
             import re
             date_match = re.search(r'(\d{8})', filename)  # Extract YYYYMMDD
-            amount_match = re.search(r'(\d+\.\d{2})', filename)  # Extract amount if present
+
             
             parsed_date = None
             if date_match:
@@ -1153,6 +1154,9 @@ async def get_edi_reports(user: Dict = Depends(require_unc_email)):
                 "size": blob_props.size,
                 "last_modified": blob_props.last_modified.isoformat() if blob_props.last_modified else None,
                 "parsed_date": parsed_date,
+                "effective_date": metadata.get("effective_date", "unknown"),
+                "total_amount": metadata.get("total_amount", 0),
+                "uploaded_by": metadata.get("uploaded_by", "unknown"),
                 "content_type": blob_props.content_settings.content_type if blob_props.content_settings else "application/pdf"
             })
         
@@ -1175,9 +1179,9 @@ async def get_edi_reports(user: Dict = Depends(require_unc_email)):
 async def get_edi_report(filename: str, user: Dict = Depends(require_unc_email)):
     """Get a specific EDI report file from Azure Blob Storage"""
     try:
-        # Initialize Azure Blob client for edi-reports container
+        # Initialize Azure Blob client for master-edi-reports container
         connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-        container_name = "edi-reports"
+        container_name = "master-edi-reports"
 
         if not connection_string:
             raise HTTPException(status_code=500, detail="Azure Storage configuration not found")

@@ -59,7 +59,7 @@ export default function EDIReportsViewer() {
   const [selectedReport, setSelectedReport] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const [sortBy, setSortBy] = useState("last_modified");
+  const [sortBy, setSortBy] = useState("effective_date");
   const [sortOrder, setSortOrder] = useState("desc");
   const [apiClient] = useState(() => new APIClient(getAuthHeaders));
 
@@ -116,17 +116,17 @@ export default function EDIReportsViewer() {
           aValue = a.parsed_date || "";
           bValue = b.parsed_date || "";
           break;
-        case "last_modified":
-          aValue = a.last_modified || "";
-          bValue = b.last_modified || "";
+        case "effective_date":
+          aValue = a.effective_date || "";
+          bValue = b.effective_date || "";
           break;
         case "size":
           aValue = a.size || 0;
           bValue = b.size || 0;
           break;
         default:
-          aValue = a.last_modified || "";
-          bValue = b.last_modified || "";
+          aValue = a.effective_date || "";
+          bValue = b.effective_date || "";
       }
 
       if (sortOrder === "asc") {
@@ -277,8 +277,8 @@ export default function EDIReportsViewer() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
-                <DropdownMenuItem onClick={() => setSortBy("last_modified")}>
-                  Last Modified
+                <DropdownMenuItem onClick={() => setSortBy("effective_date")}>
+                  Effective Date
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setSortBy("filename")}>
                   Filename
@@ -327,7 +327,7 @@ export default function EDIReportsViewer() {
                     <TableHead>Date</TableHead>
                     <TableHead>Size</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Last Modified</TableHead>
+                    <TableHead>Effective Date</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -351,7 +351,7 @@ export default function EDIReportsViewer() {
                           {getStatusText(report)}
                         </span>
                       </TableCell>
-                      <TableCell>{formatDate(report.last_modified)}</TableCell>
+                      <TableCell>{formatDate(report.effective_date)}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-2">
                           <Button

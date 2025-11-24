@@ -56,6 +56,7 @@ class AzureBlobContainerClient:
         """Get the URL for a specific blob"""
         blob_client = self.container_client.get_blob_client(blob_name)
         return blob_client.url
+
     
     def set_blob_metadata(self, blob_name: str, metadata: dict) -> bool:
         """Set the metadata for a specific blob"""
@@ -66,6 +67,16 @@ class AzureBlobContainerClient:
         except Exception as e:
             print(f"Error setting blob metadata: {e}")
             return False
+    
+    def get_blob_metadata(self, blob_name: str):
+        """Get the metadata for a specific blob"""
+        blob_client = self.container_client.get_blob_client(blob_name)
+        try:
+            properties = blob_client.get_blob_properties()
+            return properties.metadata if properties.metadata else {}
+        except Exception as e:
+            print(f"Error getting blob metadata: {e}")
+            return {}
 
 def main():
     connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
