@@ -33,6 +33,7 @@ CHS_ORIGINATORS = {
 "UMR USNAS",
 "UNITED HEALTHCARE",
 "UNITEDHEALTHCARE",
+"Freedom Life Ins"
     }
 
 @dataclass
@@ -211,7 +212,7 @@ class EDITransactionExtractor:
             
             if input_format == 'ACHCCD+' or input_format == 'ACHCCD':
                 transaction = self._parse_ccd_chunk(chunk, file_name)
-            elif input_format == 'ACHPPD+':
+            elif input_format == 'ACHPPD+' or input_format == 'ACHPPD':
                 # ACHPPD+ uses similar structure to ACHCCD+ but with "ACCT" instead of "DEMAND ACCT"
                 transaction = self._parse_ppd_chunk(chunk, file_name)
             elif input_format == 'ACHCTX':
